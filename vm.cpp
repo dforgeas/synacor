@@ -7,6 +7,7 @@ constexpr word max = 0x7fff;
 word memory[max+1];
 word regs[8];
 std::stack<word> stack;
+
 word readWord(word const*p)
 {
 	std::uint8_t const*const x = reinterpret_cast<std::uint8_t const*>(p);
@@ -28,6 +29,33 @@ void writeReg(word w, word value)
 	if (w > max) regs[w - max - 1] = value;
 	else return;
 }
+
+enum instruction
+{
+	i_halt,
+	i_set,
+	i_push,
+	i_pop,
+	i_eq,
+	i_gt,
+	i_jmp,
+	i_jt,
+	i_jf,
+	i_add,
+	i_mult,
+	i_mod,
+	i_and,
+	i_or,
+	i_not,
+	i_rmem,
+	i_wmem,
+	i_call,
+	i_ret,
+	i_out,
+	i_in,
+	i_noop
+};
+
 #define NEXTWORD readWord(&memory[pc++ & max])
 int main(int argc, char *argv[])
 {
@@ -40,18 +68,18 @@ int main(int argc, char *argv[])
 	{
 		switch (NEXTWORD)
 		{
-		case 0: // halt
+		case i_halt:
 			return 0;
-		case 1: // set
+		case i_set:
 			{
 				const word a = NEXTWORD;
 				const word b = NEXTWORD;
 				writeReg(a, readReg(b));
 			} break;
-		case 2: // push
+		case i_push:
 			stack.push(readReg(NEXTWORD));
 			break;
-		case 3: // pop
+		case i_pop:
 			if (not stack.empty())
 			{
 				const word w = stack.top();
@@ -64,97 +92,97 @@ int main(int argc, char *argv[])
 				return 2;
 			}
 			break;
-		case 4: // eq
+		case i_eq:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, b == c);
 			} break;
-		case 5: // gt
+		case i_gt:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, b > c);
 			} break;
-		case 6: // jmp
+		case i_jmp:
 			{
 				const word a = readReg(NEXTWORD);
 				pc = a;
 			} break;
-		case 7: // jt
+		case i_jt:
 			{
 				const word a = readReg(NEXTWORD);
 				const word b = readReg(NEXTWORD);
 				if (a != 0) pc = b;
 			} break;
-		case 8: // jf
+		case i_jf:
 			{
 				const word a = readReg(NEXTWORD);
 				const word b = readReg(NEXTWORD);
 				if (a == 0) pc = b;
 			} break;
-		case 9: // add
+		case i_add:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, (b + c) & max);
 			} break;
-		case 10: // mult
+		case i_mult:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, (b * c) & max);
 			} break;
-		case 11: // mod
+		case i_mod:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, b % c);
 			} break;
-		case 12: // and
+		case i_and:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, b & c);
 			} break;
-		case 13: // or
+		case i_or:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				const word c = readReg(NEXTWORD);
 				writeReg(a, b | c);
 			} break;
-		case 14: // not
+		case i_not:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				writeReg(a, (~b) & max);
 			} break;
-		case 15: // rmem
+		case i_rmem:
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
 				writeReg(a, readWord(&memory[b & max]));
 			} break;
-		case 16: // wmem
+		case i_wmem:
 			{
 				const word a = readReg(NEXTWORD);
 				const word b = readReg(NEXTWORD);
 				writeWord(&memory[a & max], b);
 			} break;
-		case 17: // call
+		case i_call:
 			{
 				const word a = readReg(NEXTWORD);
 				stack.push(pc);
 				pc = a;
 			} break;
-		case 18: // ret
+		case i_ret:
 			if (not stack.empty())
 			{
 				pc = stack.top();
@@ -165,16 +193,18 @@ int main(int argc, char *argv[])
 				return 0; // halt
 			}
 			break;
-		case 19: // out
+		case i_out:
 			std::cout << static_cast<unsigned char>(readReg(NEXTWORD)) << std::flush;
 			break;
-		case 20: // in
+		case i_in:
 			{
-				char c = 0;
+				char c;
 				std::cin.read(&c, 1);
+				if (not std::cin) // probably eof
+					return 3; // halt with EOF
 				writeReg(NEXTWORD, static_cast<unsigned char>(c));
 			} break;
-		case 21: // noop
+		case i_noop:
 			break;
 		}
 	}
