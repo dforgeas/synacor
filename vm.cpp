@@ -6,28 +6,64 @@ typedef std::uint16_t word;
 constexpr word max = 0x7fff;
 word memory[max+1];
 word regs[8];
-std::stack<word> stack;
+struct wordStack: std::stack<word>
+{
+	using std::stack<word>::c;
+} stack;
 
-word readWord(word const*p)
+static word readWord(word const*p)
 {
 	std::uint8_t const*const x = reinterpret_cast<std::uint8_t const*>(p);
 	return x[0] | (x[1] << 8);
 }
-void writeWord(word *p, word w)
+static void writeWord(word *p, word w)
 {
 	std::uint8_t *const x = reinterpret_cast<std::uint8_t *>(p);
 	x[0] = w;
 	x[1] = w >> 8;
 }
-word readReg(word w)
+static word readReg(word w)
 {
 	if (w > max) return regs[w - max - 1];
 	else return w;
 }
-void writeReg(word w, word value)
+static void writeReg(word w, word value)
 {
 	if (w > max) regs[w - max - 1] = value;
 	else return;
+}
+
+#define SAVESTATE "savestate.bin"
+
+static void saveState() // TODO: add pc
+{
+	std::ofstream out(SAVESTATE, std::ios::binary);
+	out.write(reinterpret_cast<const char*>(&memory), sizeof memory);
+	for (word const&reg: regs)
+	{
+		out.write(reinterpret_cast<const char*>(&reg), sizeof reg);
+	}
+	for (word const&w: stack.c)
+	{
+		out.write(reinterpret_cast<const char*>(&w), sizeof w);
+	}
+}
+
+static bool loadState() // TODO: add pc
+{
+	std::ifstream in(SAVESTATE, std::ios::binary);
+	if (not in) return false;
+	in.read(reinterpret_cast<char*>(&memory), sizeof memory);
+	for (word &reg: regs)
+	{
+		in.read(reinterpret_cast<char*>(&reg), sizeof reg);
+	}
+	word w;
+	while (in.read(reinterpret_cast<char*>(&w), sizeof w))
+	{
+		stack.push(w);
+	}
+	return true;
 }
 
 enum instruction
@@ -56,13 +92,9 @@ enum instruction
 	i_noop
 };
 
-#define NEXTWORD readWord(&memory[pc++ & max])
-int main(int argc, char *argv[])
+int run()
 {
-	std::ios::sync_with_stdio(false);
-	if (argc < 2) return 1;
-	std::ifstream in(argv[1], std::ios::binary);
-	in.read(reinterpret_cast<char *>(memory), sizeof memory);
+#define NEXTWORD readWord(&memory[pc++ & max])
 	word pc = 0;
 	for ( ;; )
 	{
@@ -200,12 +232,39 @@ int main(int argc, char *argv[])
 			{
 				char c;
 				std::cin.read(&c, 1);
-				if (not std::cin) // probably eof
-					return 3; // halt with EOF
-				writeReg(NEXTWORD, static_cast<unsigned char>(c));
+				if (std::cin) // input was ok
+				{
+					writeReg(NEXTWORD, static_cast<unsigned char>(c));
+				}
+				else // probably EOF
+				{
+					saveState();
+					return 0; // halt
+				}
 			} break;
 		case i_noop:
 			break;
 		}
 	}
+}
+
+int main(int argc, char *argv[])
+{
+	std::ios::sync_with_stdio(false);
+	if (argc < 2)
+	{
+		if (not loadState())
+		{
+			std::cerr << "Need either a argument with a program or a saved state.\n";
+			return 1;
+		}
+		// else carry on
+	}
+	else
+	{
+		std::ifstream in(argv[1], std::ios::binary);
+		in.read(reinterpret_cast<char *>(memory), sizeof memory);
+	}
+
+	return run();
 }
