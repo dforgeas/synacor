@@ -8,7 +8,7 @@ word memory[max+1];
 word regs[8];
 struct wordStack: std::stack<word>
 {
-	using std::stack<word>::c;
+	using std::stack<word>::c; // the underlying container
 } stack;
 
 static word readWord(word const*p)
@@ -265,6 +265,11 @@ int main(int argc, char *argv[])
 	{
 		std::ifstream in(argv[1], std::ios::binary);
 		in.read(reinterpret_cast<char *>(memory), sizeof memory);
+		if (in.gcount() == 0)
+		{
+			std::cerr << "Could not read the program in `" << argv[1] << "'\n";
+			return 1;
+		}
 	}
 
 	return run(pc);
