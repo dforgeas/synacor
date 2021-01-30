@@ -35,7 +35,7 @@ static void writeReg(word w, word value)
 
 #define SAVESTATE "savestate.bin"
 
-static void saveState() // TODO: add pc
+static void saveState(const word pc)
 {
 	std::ofstream out(SAVESTATE, std::ios::binary);
 	out.write(reinterpret_cast<const char*>(&memory), sizeof memory);
@@ -43,13 +43,14 @@ static void saveState() // TODO: add pc
 	{
 		out.write(reinterpret_cast<const char*>(&reg), sizeof reg);
 	}
+	out.write(reinterpret_cast<const char*>(&pc), sizeof pc);
 	for (word const&w: stack.c)
 	{
 		out.write(reinterpret_cast<const char*>(&w), sizeof w);
 	}
 }
 
-static bool loadState() // TODO: add pc
+static bool loadState(word &pc)
 {
 	std::ifstream in(SAVESTATE, std::ios::binary);
 	if (not in) return false;
@@ -58,6 +59,7 @@ static bool loadState() // TODO: add pc
 	{
 		in.read(reinterpret_cast<char*>(&reg), sizeof reg);
 	}
+	in.read(reinterpret_cast<char *>(&pc), sizeof pc);
 	word w;
 	while (in.read(reinterpret_cast<char*>(&w), sizeof w))
 	{
@@ -92,10 +94,9 @@ enum instruction
 	i_noop
 };
 
-int run()
+int run(word pc)
 {
 #define NEXTWORD readWord(&memory[pc++ & max])
-	word pc = 0;
 	for ( ;; )
 	{
 		switch (NEXTWORD)
@@ -231,14 +232,13 @@ int run()
 		case i_in:
 			{
 				char c;
-				std::cin.read(&c, 1);
-				if (std::cin) // input was ok
+				if (std::cin.read(&c, 1)) // input was ok
 				{
 					writeReg(NEXTWORD, static_cast<unsigned char>(c));
 				}
 				else // probably EOF
 				{
-					saveState();
+					saveState(pc - 1); // restart i_in when loading state
 					return 0; // halt
 				}
 			} break;
@@ -251,9 +251,10 @@ int run()
 int main(int argc, char *argv[])
 {
 	std::ios::sync_with_stdio(false);
+	word pc = 0;
 	if (argc < 2)
 	{
-		if (not loadState())
+		if (not loadState(pc))
 		{
 			std::cerr << "Need either a argument with a program or a saved state.\n";
 			return 1;
@@ -266,5 +267,5 @@ int main(int argc, char *argv[])
 		in.read(reinterpret_cast<char *>(memory), sizeof memory);
 	}
 
-	return run();
+	return run(pc);
 }
