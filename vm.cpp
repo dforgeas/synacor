@@ -11,23 +11,25 @@ struct wordStack: std::stack<word>
 	using std::stack<word>::c; // the underlying container
 } stack;
 
-static word readWord(word const*p)
+std::ofstream trace;
+
+static word readWord(word const*const p)
 {
 	std::uint8_t const*const x = reinterpret_cast<std::uint8_t const*>(p);
 	return x[0] | (x[1] << 8);
 }
-static void writeWord(word *p, word w)
+static void writeWord(word *const p, const word w)
 {
 	std::uint8_t *const x = reinterpret_cast<std::uint8_t *>(p);
 	x[0] = w;
 	x[1] = w >> 8;
 }
-static word readReg(word w)
+static word readReg(const word w)
 {
-	if (w > max) return regs[w - max - 1];
-	else return w;
+	const word result = (w > max) ? regs[w - max - 1] : w;
+	return result;
 }
-static void writeReg(word w, word value)
+static void writeReg(const word w, const word value)
 {
 	if (w > max) regs[w - max - 1] = value;
 	else return;
@@ -104,9 +106,26 @@ enum instruction
 	i_noop
 };
 
+static word nextProgramWord(word &pc)
+{
+	const auto w = readWord(&memory[pc++ & max]);
+	if (trace.is_open())
+	{
+		trace.put(w & 0xff).put(w >> 8);
+	}
+	return w;
+}
+
+#define TRACE_BIN "trace.bin"
 int run(word pc)
 {
-#define NEXTWORD readWord(&memory[pc++ & max])
+	std::ifstream trace_test(TRACE_BIN, std::ios::binary);
+	if (trace_test.is_open())
+	{ // trace is enabled
+		trace_test.close();
+		trace.open(TRACE_BIN, std::ios::binary);
+	}
+#define NEXTWORD nextProgramWord(pc)
 	for ( ;; )
 	{
 		switch (NEXTWORD)
