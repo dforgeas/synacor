@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 	{
 		if (x[1] != 0 or x[0] < 0 or x[0] >= n_defs) continue; // not an instruction
 		const auto &def = defs[(unsigned char)x[0]];
-		std::cout << setw(8) << offset << ':' << def.name;
+		std::cout << setw(8) << offset << ": " << def.name;
 		for (int i = 0; i < def.n_args; i++)
 		{
 			std::cout << ' ';

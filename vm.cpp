@@ -33,11 +33,11 @@ static void writeReg(word w, word value)
 	else return;
 }
 
-#define SAVESTATE "savestate.bin"
+#define SAVESTATE_BIN "savestate.bin"
 
 static void saveState(const word pc)
 {
-	std::ofstream out(SAVESTATE, std::ios::binary);
+	std::ofstream out(SAVESTATE_BIN, std::ios::binary);
 	out.write(reinterpret_cast<const char*>(&memory), sizeof memory);
 	for (word const&reg: regs)
 	{
@@ -52,7 +52,7 @@ static void saveState(const word pc)
 
 static bool loadState(word &pc)
 {
-	std::ifstream in(SAVESTATE, std::ios::binary);
+	std::ifstream in(SAVESTATE_BIN, std::ios::binary);
 	if (not in) return false;
 	in.read(reinterpret_cast<char*>(&memory), sizeof memory);
 	for (word &reg: regs)
