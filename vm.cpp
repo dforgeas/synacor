@@ -39,14 +39,18 @@ static void saveState(const word pc)
 {
 	std::ofstream out(SAVESTATE_BIN, std::ios::binary);
 	out.write(reinterpret_cast<const char*>(&memory), sizeof memory);
+	auto putWord = [&out](const word w)
+	{
+		out.put(w & 0xff).put(w >> 8);
+	};
 	for (word const&reg: regs)
 	{
-		out.write(reinterpret_cast<const char*>(&reg), sizeof reg);
+		putWord(reg);
 	}
-	out.write(reinterpret_cast<const char*>(&pc), sizeof pc);
+	putWord(pc);
 	for (word const&w: stack.c)
 	{
-		out.write(reinterpret_cast<const char*>(&w), sizeof w);
+		putWord(w);
 	}
 }
 
@@ -55,13 +59,19 @@ static bool loadState(word &pc)
 	std::ifstream in(SAVESTATE_BIN, std::ios::binary);
 	if (not in) return false;
 	in.read(reinterpret_cast<char*>(&memory), sizeof memory);
+	auto getWord = [&in]() -> word
+	{
+		char x, y;
+		if (in.get(x).get(y)) return (unsigned char)x | ((unsigned char)y << 8);
+		else return 0xffff;
+	};
 	for (word &reg: regs)
 	{
-		in.read(reinterpret_cast<char*>(&reg), sizeof reg);
+		reg = getWord();
 	}
-	in.read(reinterpret_cast<char *>(&pc), sizeof pc);
+	pc = getWord();
 	word w;
-	while (in.read(reinterpret_cast<char*>(&w), sizeof w))
+	while ((w = getWord()) != 0xffff)
 	{
 		stack.push(w);
 	}
@@ -227,12 +237,13 @@ int run(word pc)
 			}
 			break;
 		case i_out:
-			std::cout << static_cast<unsigned char>(readReg(NEXTWORD)) << std::flush;
+			std::cout << static_cast<unsigned char>(readReg(NEXTWORD));
+			// don't flush here since cout will be flushed when cin reads
 			break;
 		case i_in:
 			{
 				char c;
-				if (std::cin.read(&c, 1)) // input was ok
+				if (std::cin.get(c)) // input was ok
 				{
 					writeReg(NEXTWORD, static_cast<unsigned char>(c));
 				}
