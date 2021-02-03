@@ -54,16 +54,16 @@ int main(int argc, char *argv[])
 	char x[2];
 	for (int offset = 0; in.read(x, sizeof x); offset++)
 	{
-		if (x[1] != 0 or x[0] < 0 or x[0] >= n_defs) continue; // not an instruction
-		const auto &def = defs[(unsigned char)x[0]];
+		const unsigned char x0 = x[0];
+		if (x[1] != 0 or x0 >= n_defs) continue; // not an instruction
+		const auto &def = defs[x0];
 		std::cout << setw(8) << offset << ": " << def.name;
 		for (int i = 0; i < def.n_args; i++)
 		{
 			std::cout << ' ';
 			if (i + 1 == def.mem_arg) std::cout << '(';
-			char y[2];
-			if (not in.read(y, sizeof y)) return 2;
-			offset++, std::cout << reg(y[0], y[1]);
+			if (not in.read(x, sizeof x)) return 2;
+			offset++, std::cout << reg(x[0], x[1]);
 			if (i + 1 == def.mem_arg) std::cout << ')';
 		}
 		std::cout << '\n';
