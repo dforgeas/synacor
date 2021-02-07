@@ -21,7 +21,7 @@ BEGIN {
 		for (i = 0; i < 8; i++) regs[i] = 0
 		stack_p = 1
 		# load the program in memory
-		program = "hexdump -d challenge.bin"
+		program = "od --endian=little -d challenge.bin"
 		j = 0
 		while ((program | getline) > 0) {
 			for (i = 2; i < 10; i++) mem[j++] = $i + 0
@@ -110,6 +110,8 @@ BEGIN {
 			input = substr(input, 2)
 		} else if (i == 0) {
 			exit
+		} else {
+			exit 101
 		}
 	}
 }
