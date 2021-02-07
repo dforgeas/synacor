@@ -13,18 +13,22 @@ BEGIN {
 	ord_index = ""
 	# initialize our character code function
 	for (i = 1; i < 256; i+=4) ord_index = sprintf("%s%c%c%c%c", ord_index, i, 1+i, 2+i, 3+i) # not found is 0
-	# the virtual machine memory areas
-	for (i = 0; i < max; i++) mem[i] = 0
-	for (i = 0; i < 8; i++) regs[i] = 0
-	stack_p = 1
-	# load the program in memory
-	program = "hexdump -d challenge.bin"
-	j = 0
-	while ((program | getline) > 0) {
-		for (i = 2; i < 10; i++) mem[j++] = $i + 0
+	# try to load our savestate
+	if (! loadstate())
+	{
+		# the virtual machine memory areas
+		for (i = 0; i < max; i++) mem[i] = 0
+		for (i = 0; i < 8; i++) regs[i] = 0
+		stack_p = 1
+		# load the program in memory
+		program = "hexdump -d challenge.bin"
+		j = 0
+		while ((program | getline) > 0) {
+			for (i = 2; i < 10; i++) mem[j++] = $i + 0
+		}
+		close(program)
+		pc = 0
 	}
-	close(program)
-	pc = 0
 	input = ""
 	while (1) {
 		i = mem[pc++]
@@ -97,7 +101,7 @@ BEGIN {
 			if (input == "") {
 				i = getline input
 				if (i <= 0) { # EOF or input error
-					# TODO: save state
+					savestate(pc - 1)
 					exit
 				}
 				input = input ORS
@@ -146,4 +150,27 @@ function bitwise_not(a,     i, j, r) {
 		r += j * (int(a / j) % 2 == 0)
 	}
 	return r
+}
+
+function savestate(pc,     i, file) {
+	file = "bzip2 -zc > savestate.txt.bz2"
+	for (i = 0; i < max; i++) print mem[i] | file
+	for (i = 0; i < 8; i++) print regs[i] | file
+	print pc | file
+	for (i = 1; i < stack_p; i++) print stack[i] | file
+	close(file)
+}
+
+function loadstate(     i, file) {
+	file = "bzip2 -dc < savestate.txt.bz2"
+	if ((file | getline) <= 0) { return 0 } # cannot read file
+	else close(file) # can read: close and load
+
+	for (i = 0; i < max; i++) { file | getline; mem[i] = $1 }
+	for (i = 0; i < 8; i++) { file | getline; regs[i] = $1 }
+	file | getline; pc = $1
+	stack_p = 1
+	while ((file | getline) > 0) stack[stack_p++] = $1
+	close(file)
+	return 1
 }
