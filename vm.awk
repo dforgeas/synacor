@@ -28,63 +28,15 @@ BEGIN {
 	input = ""
 	while (1) {
 		i = mem[pc++]
-		if (i == 0) {
-			exit
-		} else if (i == 1) {
-			a = pc++
-			wreg(a, rreg(pc++))
-		} else if (i == 2) {
+		if (i == 2) {
 			stack[stack_p++] = rreg(pc++)
 		} else if (i == 3) {
 			if (stack_p == 1) exit 100
 			else wreg(pc++, stack[--stack_p])
-		} else if (i == 4) {
-			a = pc++
-			b = pc++
-			wreg(a, rreg(b) == rreg(pc++))
-		} else if (i == 5) {
-			a = pc++
-			b = pc++
-			wreg(a, rreg(b) > rreg(pc++))
-		} else if (i == 6) {
-			pc = rreg(pc)
-		} else if (i == 7) {
-			a = pc++
-			b = pc++
-			if (rreg(a) != 0) pc = rreg(b)
-		} else if (i == 8) {
-			a = pc++
-			b = pc++
-			if (rreg(a) == 0) pc = rreg(b)
-		} else if (i == 9) {
-			a = pc++
-			b = pc++
-			wreg(a, (rreg(b) + rreg(pc++)) % max)
-		} else if (i == 10) {
-			a = pc++
-			b = pc++
-			wreg(a, (rreg(b) * rreg(pc++)) % max)
-		} else if (i == 11) {
-			a = pc++
-			b = pc++
-			wreg(a, rreg(b) % rreg(pc++))
 		} else if (i == 12) {
 			a = pc++
 			b = pc++
 			wreg(a, bitwise_and(rreg(b), rreg(pc++)))
-		} else if (i == 13) {
-			a = pc++
-			b = pc++
-			wreg(a, bitwise_or(rreg(b), rreg(pc++)))
-		} else if (i == 14) {
-			a = pc++
-			wreg(a, bitwise_not(rreg(pc++)))
-		} else if (i == 15) {
-			a = pc++
-			wreg(a, mem[rreg(pc++)])
-		} else if (i == 16) {
-			a = pc++
-			mem[rreg(a)] = rreg(pc++)
 		} else if (i == 17) {
 			a = pc++
 			stack[stack_p++] = pc
@@ -92,8 +44,55 @@ BEGIN {
 		} else if (i == 18) {
 			if (stack_p == 1) exit
 			else pc = stack[--stack_p]
+		} else if (i == 14) {
+			a = pc++
+			wreg(a, bitwise_not(rreg(pc++)))
+		} else if (i == 13) {
+			a = pc++
+			b = pc++
+			wreg(a, bitwise_or(rreg(b), rreg(pc++)))
+		} else if (i == 9) {
+			a = pc++
+			b = pc++
+			wreg(a, (rreg(b) + rreg(pc++)) % max)
+		} else if (i == 15) {
+			a = pc++
+			wreg(a, mem[rreg(pc++)])
+		} else if (i == 1) {
+			a = pc++
+			wreg(a, rreg(pc++))
+		} else if (i == 8) {
+			a = pc++
+			b = pc++
+			if (rreg(a) == 0) pc = rreg(b)
+		} else if (i == 4) {
+			a = pc++
+			b = pc++
+			wreg(a, rreg(b) == rreg(pc++))
+		} else if (i == 16) {
+			a = pc++
+			mem[rreg(a)] = rreg(pc++)
+		} else if (i == 10) {
+			a = pc++
+			b = pc++
+			wreg(a, (rreg(b) * rreg(pc++)) % max)
+		} else if (i == 7) {
+			a = pc++
+			b = pc++
+			if (rreg(a) != 0) pc = rreg(b)
 		} else if (i == 19) {
 			printf "%c", rreg(pc++)
+		} else if (i == 5) {
+			a = pc++
+			b = pc++
+			wreg(a, rreg(b) > rreg(pc++))
+		} else if (i == 6) {
+			pc = rreg(pc)
+		} else if (i == 21) {
+		} else if (i == 11) {
+			a = pc++
+			b = pc++
+			wreg(a, rreg(b) % rreg(pc++))
 		} else if (i == 20) {
 			if (input == "") {
 				i = getline input
@@ -105,7 +104,8 @@ BEGIN {
 			}
 			wreg(pc++, index(ord_index, substr(input, 1, 1)))
 			input = substr(input, 2)
-		} else if (i == 21) {
+		} else if (i == 0) {
+			exit
 		}
 	}
 }
