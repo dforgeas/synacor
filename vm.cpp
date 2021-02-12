@@ -256,9 +256,15 @@ int run(word pc)
 			}
 			break;
 		case i_out:
-			std::cout << static_cast<unsigned char>(readReg(NEXTWORD));
-			// don't flush here since cout will be flushed when cin reads
-			break;
+			{
+				const auto c = static_cast<unsigned char>(readReg(NEXTWORD));
+				std::cout << c;
+				if (trace.is_open())
+				{
+					trace.put(0xff).put(0xfe) << '[' << c << ']' << std::ends;
+				}
+				// don't flush here since cout will be flushed when cin reads
+			} break;
 		case i_in:
 			{
 				char c;

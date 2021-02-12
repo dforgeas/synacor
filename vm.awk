@@ -21,10 +21,10 @@ BEGIN {
 		for (i = 0; i < 8; i++) regs[i] = 0
 		stack_p = 1
 		# load the program in memory
-		program = "od --endian=little -d challenge.bin"
+		program = "od --endian=little -dv challenge.bin"
 		j = 0
 		while ((program | getline) > 0) {
-			for (i = 2; i < 10; i++) mem[j++] = $i + 0
+			for (i = 2; i < NF; i++) mem[j++] = $i + 0
 		}
 		close(program)
 		pc = 0

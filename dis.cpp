@@ -66,6 +66,22 @@ int main(int argc, char *argv[])
 			offset++, std::cout << reg(x[0], x[1]);
 			if (i + 1 == def.mem_arg) std::cout << ')';
 		}
+		// now parse and print the optional comment
+		if (in.peek() == 0xff)
+		{
+			in.get(); // 0xff
+			if (in.peek() == 0xfe)
+			{
+				in.get(); // 0xfe, making a BOM: 0xFEFF
+				std::string comment;
+				std::getline(in, comment, '\0');
+				std::cout << " # " << comment;
+			}
+			else
+			{
+				in.unget(); // put back 0xff
+			}
+		}
 		std::cout << '\n';
 	}
 }
