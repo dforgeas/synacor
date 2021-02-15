@@ -13,6 +13,18 @@ struct wordStack: std::stack<word>
 
 std::ofstream trace;
 
+struct traceComment
+{
+	traceComment()
+	{
+		trace.put(0xff).put(0xfe);
+	}
+	~traceComment()
+	{
+		trace << std::ends;
+	}
+};
+
 static word readWord(word const*const p)
 {
 	std::uint8_t const*const x = reinterpret_cast<std::uint8_t const*>(p);
@@ -31,6 +43,11 @@ static word readReg(const word w)
 }
 static void writeReg(const word w, const word value)
 {
+	if (trace.is_open())
+	{
+		traceComment c;
+		trace << ":=" << value;
+	}
 	if (w > max) regs[w - max - 1] = value;
 	else return;
 }
@@ -261,7 +278,8 @@ int run(word pc)
 				std::cout << c;
 				if (trace.is_open())
 				{
-					trace.put(0xff).put(0xfe) << '[' << c << ']' << std::ends;
+					traceComment x;
+					trace << '[' << c << ']';
 				}
 				// don't flush here since cout will be flushed when cin reads
 			} break;

@@ -66,8 +66,8 @@ int main(int argc, char *argv[])
 			offset++, std::cout << reg(x[0], x[1]);
 			if (i + 1 == def.mem_arg) std::cout << ')';
 		}
-		// now parse and print the optional comment
-		if (in.peek() == 0xff)
+		// now parse and print the optional comments
+		while (in.peek() == 0xff)
 		{
 			in.get(); // 0xff
 			if (in.peek() == 0xfe)
@@ -80,6 +80,7 @@ int main(int argc, char *argv[])
 			else
 			{
 				in.unget(); // put back 0xff
+				break; // exit the loop: don't try again
 			}
 		}
 		std::cout << '\n';
