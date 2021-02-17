@@ -1,10 +1,10 @@
-enum Arg
+enum _Arg
 {
     Val(u16),
     Reg(u16)
 }
 
-enum Instr
+enum _Instr
 {
     Halt,
     Set(Arg, Arg),
@@ -29,4 +29,31 @@ enum Instr
     In(Arg),
     Noop,
     Data(Arg)
+}
+
+enum Cell
+{
+    Halt,
+    Set,
+    Push,
+    Pop,
+    Eq,
+    Gt,
+    Jmp,
+    Jt,
+    Jf,
+    Add,
+    Mult,
+    Mod,
+    And,
+    Or,
+    Not,
+    Rmem,
+    Wmem,
+    Call,
+    Ret,
+    Out,
+    In,
+    Noop,
+    Data(u16)
 }
