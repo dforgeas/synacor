@@ -7,26 +7,26 @@ enum _Arg
 enum _Instr
 {
     Halt,
-    Set(Arg, Arg),
-    Push(Arg),
-    Pop(Arg),
-    Eq(Arg, Arg, Arg),
-    Gt(Arg, Arg, Arg),
-    Jmp(Arg),
-    Jt(Arg, Arg),
-    Jf(Arg, Arg),
-    Add(Arg, Arg, Arg),
-    Mult(Arg, Arg, Arg),
-    Mod(Arg, Arg, Arg),
-    And(Arg, Arg, Arg),
-    Or(Arg, Arg, Arg),
-    Not(Arg, Arg, Arg),
-    Rmem(Arg, Arg),
-    Wmem(Arg, Arg),
-    Call(Arg),
+    Set(_Arg, _Arg),
+    Push(_Arg),
+    Pop(_Arg),
+    Eq(_Arg, _Arg, _Arg),
+    Gt(_Arg, _Arg, _Arg),
+    Jmp(_Arg),
+    Jt(_Arg, _Arg),
+    Jf(_Arg, _Arg),
+    Add(_Arg, _Arg, _Arg),
+    Mult(_Arg, _Arg, _Arg),
+    Mod(_Arg, _Arg, _Arg),
+    And(_Arg, _Arg, _Arg),
+    Or(_Arg, _Arg, _Arg),
+    Not(_Arg, _Arg, _Arg),
+    Rmem(_Arg, _Arg),
+    Wmem(_Arg, _Arg),
+    Call(_Arg),
     Ret,
-    Out(Arg),
-    In(Arg),
+    Out(_Arg),
+    In(_Arg),
     Noop,
     Data(u16)
 }
@@ -60,7 +60,7 @@ enum Cell
 
 impl Cell
 {
-    fn decode(x: u16)
+    fn decode(x: u16) -> Cell
     {
         match x
         {
@@ -90,10 +90,37 @@ impl Cell
         }
     }
 
-    fn encode(&self)
+    fn encode(&self) -> u16
     {
         match self
         {
+            Cell::Halt=>0 ,
+            Cell::Set=>1 ,
+            Cell::Push=>2 ,
+            Cell::Pop=>3 ,
+            Cell::Eq=>4 ,
+            Cell::Gt=>5 ,
+            Cell::Jmp=>6 ,
+            Cell::Jt=>7 ,
+            Cell::Jf=>8 ,
+            Cell::Add=>9 ,
+            Cell::Mult=>10,
+            Cell::Mod=>11,
+            Cell::And=>12,
+            Cell::Or=>13,
+            Cell::Not=>14,
+            Cell::Rmem=>15,
+            Cell::Wmem=>16,
+            Cell::Call=>17,
+            Cell::Ret=>18,
+            Cell::Out=>19,
+            Cell::In=>20,
+            Cell::Noop=>21,
+            Cell::Data(x)=>*x
         }
     }
+}
+
+fn main()
+{
 }
