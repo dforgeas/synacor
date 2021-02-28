@@ -1,3 +1,5 @@
+use std::fs::File;
+
 enum _Arg
 {
     Val(u16),
@@ -121,6 +123,37 @@ impl Cell
     }
 }
 
-fn main()
-{
+const MAX: u16 = 0x7fff;
+const MEM_SIZE: usize = MAX as usize + 1;
+
+struct Program {
+    memory: [u16; MEM_SIZE],
+    regs: [u16; 8],
+    stack: Vec<u16>,
+}
+
+fn load_state(program: &mut Program) -> Result<u16, std::io::Error> {
+    Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
+}
+
+fn run(program: &mut Program, pc: u16) {
+}
+
+fn main() -> Result<(), std::io::Error> {
+    let mut program = Program {
+        memory: [0u16; MEM_SIZE],
+        regs: [0u16; 8],
+        stack: Vec::new(),
+    };
+    let loaded = load_state(&mut program);
+    let mut pc = match loaded {
+        Ok(p) => p,
+        Err(_) => {
+            let challenge = File::open("challenge.bin")?;
+            // TODO fill memory with the challenge file
+            0u16
+        }
+    };
+    run(&mut program, pc);
+    Ok(())
 }
