@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Read;
 
 enum _Arg
 {
@@ -146,12 +147,15 @@ fn main() -> Result<(), std::io::Error> {
         stack: Vec::new(),
     };
     let loaded = load_state(&mut program);
-    let mut pc = match loaded {
+    let pc = match loaded {
         Ok(p) => p,
         Err(_) => {
-            let challenge = File::open("challenge.bin")?;
+            let mut challenge = File::open("challenge.bin")?;
             // TODO fill memory with the challenge file
-            0u16
+            let mut binary = Vec::new();
+            challenge.read_to_end(&mut binary)?;
+            
+            0u16 // pc
         }
     };
     run(&mut program, pc);
