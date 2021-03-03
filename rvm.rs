@@ -124,6 +124,28 @@ impl Cell
     }
 }
 
+pub struct PairIter<I: Iterator> {
+    i: I
+}
+
+impl<I: Iterator> PairIter<I> {
+    pub fn new(i: I) -> PairIter<I> {
+        PairIter{i}
+    }
+}
+
+impl<I: Iterator> Iterator for PairIter<I> {
+    type Item = (I::Item, I::Item);
+    fn next(&mut self) -> Option<Self::Item> {
+        let a = self.i.next();
+        let b = self.i.next();
+        match (a, b) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None
+        }
+    }
+}
+
 const MAX: u16 = 0x7fff;
 const MEM_SIZE: usize = MAX as usize + 1;
 
