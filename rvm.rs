@@ -34,6 +34,7 @@ enum _Instr
     Data(u16)
 }
 
+#[derive(Clone, Copy)]
 enum Cell
 {
     Halt,
@@ -58,8 +59,13 @@ enum Cell
     Out,
     In,
     Noop,
-    Data(u16)
+    Data(u16),
+    Reg(u16),
 }
+
+const MAX: u16 = 0x7fff;
+const REG_START: u16 = MAX + 1;
+const REG_END: u16 = MAX + 8;
 
 impl Cell
 {
@@ -89,7 +95,8 @@ impl Cell
             19=> Cell::Out,
             20=> Cell::In,
             21=> Cell::Noop,
-            y => Cell::Data(y)
+            REG_START..=REG_END => Cell::Reg(x - REG_START),
+            _ => Cell::Data(x),
         }
     }
 
@@ -119,7 +126,8 @@ impl Cell
             Cell::Out=>19,
             Cell::In=>20,
             Cell::Noop=>21,
-            Cell::Data(x)=>*x
+            Cell::Data(x) => *x,
+            Cell::Reg(x) => *x + REG_START,
         }
     }
 }
@@ -146,40 +154,43 @@ impl<I: Iterator> Iterator for PairIter<I> {
     }
 }
 
-const MAX: u16 = 0x7fff;
 const MEM_SIZE: usize = MAX as usize + 1;
 
 struct Program {
-    memory: [u16; MEM_SIZE],
+    memory: [Cell; MEM_SIZE],
     regs: [u16; 8],
     stack: Vec<u16>,
 }
 
-fn load_state(program: &mut Program) -> Result<u16, std::io::Error> {
-    Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
-}
+impl Program {
+    fn load_state(&mut self) -> Result<u16, std::io::Error> {
+        Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
+    }
 
-fn run(program: &mut Program, pc: u16) {
+    fn run(&mut self, pc: u16) {
+    }
 }
 
 fn main() -> Result<(), std::io::Error> {
     let mut program = Program {
-        memory: [0u16; MEM_SIZE],
+        memory: [Cell::Halt; MEM_SIZE],
         regs: [0u16; 8],
         stack: Vec::new(),
     };
-    let loaded = load_state(&mut program);
+    let loaded = program.load_state();
     let pc = match loaded {
         Ok(p) => p,
         Err(_) => {
+            // TODO: move to program.load_challenge()
             let mut challenge = File::open("challenge.bin")?;
-            // TODO fill memory with the challenge file
             let mut binary = Vec::new();
             challenge.read_to_end(&mut binary)?;
-            
+            for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
+                program.memory[i] = Cell::decode(*a as u16 | (*b as u16) << 8);
+            }
             0u16 // pc
         }
     };
-    run(&mut program, pc);
+    program.run(pc);
     Ok(())
 }
