@@ -163,6 +163,16 @@ struct Program {
 }
 
 impl Program {
+    fn load_challenge(&mut self) -> Result<u16, std::io::Error> {
+        let mut challenge = File::open("challenge.bin")?;
+        let mut binary = Vec::new();
+        challenge.read_to_end(&mut binary)?;
+        for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
+            self.memory[i] = Cell::decode(*a as u16 | (*b as u16) << 8);
+        }
+
+        Ok(0u16) // pc
+    }
     fn load_state(&mut self) -> Result<u16, std::io::Error> {
         Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
     }
@@ -180,16 +190,7 @@ fn main() -> Result<(), std::io::Error> {
     let loaded = program.load_state();
     let pc = match loaded {
         Ok(p) => p,
-        Err(_) => {
-            // TODO: move to program.load_challenge()
-            let mut challenge = File::open("challenge.bin")?;
-            let mut binary = Vec::new();
-            challenge.read_to_end(&mut binary)?;
-            for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
-                program.memory[i] = Cell::decode(*a as u16 | (*b as u16) << 8);
-            }
-            0u16 // pc
-        }
+        Err(_) => program.load_challenge()?
     };
     program.run(pc);
     Ok(())
