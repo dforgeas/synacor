@@ -1,5 +1,6 @@
 use std::fs::File;
-use std::io::Read;
+use std::io::{stdout, stdin, Read, Write};
+use std::convert::TryInto;
 
 enum _Arg
 {
@@ -34,7 +35,7 @@ enum _Instr
     Data(u16)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Cell
 {
     Halt,
@@ -158,7 +159,7 @@ const MEM_SIZE: usize = MAX as usize + 1;
 
 struct Program {
     memory: [Cell; MEM_SIZE],
-    regs: [u16; 8],
+    regs: [Cell; 8],
     stack: Vec<u16>,
 }
 
@@ -177,11 +178,27 @@ impl Program {
         Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
     }
 
+    fn next(&self, pc: &mut u16) -> Cell {
+        let x = self.memory[*pc as usize];
+        *pc += 1;
+        x
+    }
+    fn rreg(&self, a: Cell) -> Cell {
+        match a {
+            Cell::Reg(r) => self.regs[r as usize],
+            _ => a,
+        }
+    }
+    fn wreg(&mut self, a: Cell, b: Cell) {
+        if let Cell::Reg(r) = a {
+            self.regs[r as usize] = b
+        }
+    }
+
     fn run(&mut self, pc: u16) {
         let mut pc = pc;
         loop {
-            let c = self.memory[pc as usize];
-            pc += 1;
+            let c = self.next(&mut pc);
             match c {
                 Cell::Halt => break,
                 Cell::Set => continue,
@@ -202,10 +219,13 @@ impl Program {
                 Cell::Wmem => continue,
                 Cell::Call => continue,
                 Cell::Ret => continue,
-                Cell::Out => continue,
+                Cell::Out => {
+                    let a = self.rreg(self.next(&mut pc));
+                    stdout().write(&[a.encode().try_into().unwrap()]).unwrap();
+                }
                 Cell::In => continue,
                 Cell::Noop => continue,
-                _ => panic!("Invalid instruction!"),
+                _ => panic!("Invalid instruction: {:?} at {:x}!", c, pc-1),
             }
         }
     }
@@ -214,7 +234,7 @@ impl Program {
 fn main() -> Result<(), std::io::Error> {
     let mut program = Program {
         memory: [Cell::Halt; MEM_SIZE],
-        regs: [0u16; 8],
+        regs: [Cell::Halt; 8],
         stack: Vec::new(),
     };
     let loaded = program.load_state();
