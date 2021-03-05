@@ -178,6 +178,36 @@ impl Program {
     }
 
     fn run(&mut self, pc: u16) {
+        let mut pc = pc;
+        loop {
+            let c = self.memory[pc as usize];
+            pc += 1;
+            match c {
+                Cell::Halt => break,
+                Cell::Set => continue,
+                Cell::Push => continue,
+                Cell::Pop => continue,
+                Cell::Eq => continue,
+                Cell::Gt => continue,
+                Cell::Jmp => continue,
+                Cell::Jt => continue,
+                Cell::Jf => continue,
+                Cell::Add => continue,
+                Cell::Mult => continue,
+                Cell::Mod => continue,
+                Cell::And => continue,
+                Cell::Or => continue,
+                Cell::Not => continue,
+                Cell::Rmem => continue,
+                Cell::Wmem => continue,
+                Cell::Call => continue,
+                Cell::Ret => continue,
+                Cell::Out => continue,
+                Cell::In => continue,
+                Cell::Noop => continue,
+                _ => panic!("Invalid instruction!"),
+            }
+        }
     }
 }
 
