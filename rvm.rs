@@ -35,7 +35,7 @@ enum _Instr
     Data(u16)
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cell
 {
     Halt,
@@ -96,8 +96,9 @@ impl Cell
             19=> Cell::Out,
             20=> Cell::In,
             21=> Cell::Noop,
+            22..=MAX => Cell::Data(x),
             REG_START..=REG_END => Cell::Reg(x - REG_START),
-            _ => Cell::Data(x),
+            x => panic!("Cannot decode value: {}", x),
         }
     }
 
@@ -128,7 +129,7 @@ impl Cell
             Cell::In=>20,
             Cell::Noop=>21,
             Cell::Data(x) => *x,
-            Cell::Reg(x) => *x + REG_START,
+            Cell::Reg(x) => panic!("Cannot encode a register: {}", *x + REG_START),
         }
     }
 }
@@ -160,7 +161,7 @@ const MEM_SIZE: usize = MAX as usize + 1;
 struct Program {
     memory: [Cell; MEM_SIZE],
     regs: [Cell; 8],
-    stack: Vec<u16>,
+    stack: Vec<Cell>,
 }
 
 impl Program {
@@ -201,14 +202,50 @@ impl Program {
             let c = self.next(&mut pc);
             match c {
                 Cell::Halt => break,
-                Cell::Set => continue,
-                Cell::Push => continue,
-                Cell::Pop => continue,
-                Cell::Eq => continue,
-                Cell::Gt => continue,
-                Cell::Jmp => continue,
-                Cell::Jt => continue,
-                Cell::Jf => continue,
+                Cell::Set => {
+                    let a = self.next(&mut pc);
+                    let b = self.next(&mut pc);
+                    self.wreg(a, self.rreg(b));
+                },
+                Cell::Push => {
+                    let a = self.next(&mut pc);
+                    self.stack.push(self.rreg(a));
+                },
+                Cell::Pop => {
+                    let a = self.next(&mut pc);
+                    let top = self.stack.pop().unwrap();
+                    self.wreg(a, top);
+                },
+                Cell::Eq => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc));
+                    let c = self.rreg(self.next(&mut pc));
+                    self.wreg(a, Cell::decode((b == c).into()));
+                },
+                Cell::Gt => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    let c = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode((b > c).into()));
+                },
+                Cell::Jmp => {
+                    let a = self.rreg(self.next(&mut pc)).encode();
+                    pc = a;
+                },
+                Cell::Jt => {
+                    let a = self.rreg(self.next(&mut pc));
+                    let b = self.next(&mut pc);
+                    if a != Cell::Halt {
+                        pc = self.rreg(b).encode();
+                    }
+                },
+                Cell::Jf => {
+                    let a = self.rreg(self.next(&mut pc));
+                    let b = self.next(&mut pc);
+                    if a == Cell::Halt {
+                        pc = self.rreg(b).encode();
+                    }
+                },
                 Cell::Add => continue,
                 Cell::Mult => continue,
                 Cell::Mod => continue,
@@ -223,7 +260,11 @@ impl Program {
                     let a = self.rreg(self.next(&mut pc));
                     stdout().write(&[a.encode().try_into().unwrap()]).unwrap();
                 }
-                Cell::In => continue,
+                Cell::In => {
+                    let mut b = [0u8];
+                    stdin().read(&mut b).unwrap();
+                    self.wreg(self.next(&mut pc), Cell::decode(b[0].into()));
+                }
                 Cell::Noop => continue,
                 _ => panic!("Invalid instruction: {:?} at {:x}!", c, pc-1),
             }
