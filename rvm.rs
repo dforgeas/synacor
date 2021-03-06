@@ -178,6 +178,8 @@ impl Program {
     fn load_state(&mut self) -> Result<u16, std::io::Error> {
         Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
     }
+    fn save_state(&mut self) {
+    }
 
     fn next(&self, pc: &mut u16) -> Cell {
         let x = self.memory[*pc as usize];
@@ -309,7 +311,13 @@ impl Program {
                 }
                 Cell::In => {
                     let mut b = [0u8];
-                    stdin().read(&mut b).unwrap();
+                    if 0 == stdin().read(&mut b).unwrap() {
+                        self.save_state();
+                        break;
+                    }
+                    if b[0] == b'\r' {
+                        stdin().read(&mut b).unwrap(); // unlikely this could be EOF here
+                    }
                     self.wreg(self.next(&mut pc), Cell::decode(b[0].into()));
                 }
                 Cell::Noop => continue,
