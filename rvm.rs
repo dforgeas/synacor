@@ -246,16 +246,63 @@ impl Program {
                         pc = self.rreg(b).encode();
                     }
                 },
-                Cell::Add => continue,
-                Cell::Mult => continue,
-                Cell::Mod => continue,
-                Cell::And => continue,
-                Cell::Or => continue,
-                Cell::Not => continue,
-                Cell::Rmem => continue,
-                Cell::Wmem => continue,
-                Cell::Call => continue,
-                Cell::Ret => continue,
+                Cell::Add => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    let c = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode(b + c & MAX));
+                },
+                Cell::Mult => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    let c = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode(b * c & MAX));
+                },
+                Cell::Mod => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    let c = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode(b % c));
+                },
+                Cell::And => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    let c = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode(b & c));
+                },
+                Cell::Or => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    let c = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode(b | c));
+                },
+                Cell::Not => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, Cell::decode(! b & MAX));
+                },
+                Cell::Rmem => {
+                    let a = self.next(&mut pc);
+                    let b = self.rreg(self.next(&mut pc)).encode();
+                    self.wreg(a, self.memory[b as usize]);
+                },
+                Cell::Wmem => {
+                    let a = self.rreg(self.next(&mut pc)).encode();
+                    let b = self.rreg(self.next(&mut pc));
+                    self.memory[a as usize] = b;
+                },
+                Cell::Call => {
+                    let a = self.rreg(self.next(&mut pc)).encode();
+                    self.stack.push(Cell::decode(pc));
+                    pc = a;
+                },
+                Cell::Ret => {
+                    if let Some(c) = self.stack.pop() {
+                        pc = c.encode();
+                    } else {
+                        break;
+                    }
+                },
                 Cell::Out => {
                     let a = self.rreg(self.next(&mut pc));
                     stdout().write(&[a.encode().try_into().unwrap()]).unwrap();
