@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{stdout, stdin, Read, Write};
+use std::io::{stdout, stdin, Read, Write, ErrorKind};
 use std::convert::TryInto;
 
 enum _Arg
@@ -129,7 +129,7 @@ impl Cell
             Cell::In=>20,
             Cell::Noop=>21,
             Cell::Data(x) => *x,
-            Cell::Reg(x) => panic!("Cannot encode a register: {}", *x + REG_START),
+            Cell::Reg(x) => *x + REG_START,
         }
     }
 }
@@ -157,6 +157,7 @@ impl<I: Iterator> Iterator for PairIter<I> {
 }
 
 const MEM_SIZE: usize = MAX as usize + 1;
+const SAVESTATE_BIN: &str = "savestate.bin";
 
 struct Program {
     memory: [Cell; MEM_SIZE],
@@ -165,7 +166,7 @@ struct Program {
 }
 
 impl Program {
-    fn load_challenge(&mut self) -> Result<u16, std::io::Error> {
+    fn load_challenge(&mut self) -> std::io::Result<u16> {
         let mut challenge = File::open("challenge.bin")?;
         let mut binary = Vec::new();
         challenge.read_to_end(&mut binary)?;
@@ -175,10 +176,40 @@ impl Program {
 
         Ok(0u16) // pc
     }
-    fn load_state(&mut self) -> Result<u16, std::io::Error> {
-        Err(std::io::Error::last_os_error()) // TODO, replace dummy error with real code
+    fn load_state(&mut self) -> std::io::Result<u16> {
+        let mut savestate = File::open(SAVESTATE_BIN)?;
+        let mut b = [0u8; 2];
+        for r in self.memory.iter_mut().chain(self.regs.iter_mut()) {
+            savestate.read_exact(&mut b)?;
+            *r = Cell::decode(b[0] as u16 | (b[1] as u16) << 8);
+        }
+        savestate.read_exact(&mut b)?;
+        let pc = b[0] as u16 | (b[1] as u16) << 8;
+        loop {
+            match savestate.read_exact(&mut b) {
+                Ok(_) => self.stack.push(Cell::decode(b[0] as u16 | (b[1] as u16) << 8)),
+                Err(e) => {
+                    if e.kind() == ErrorKind::UnexpectedEof {
+                        // we found the end of the stack
+                        return Ok(pc)
+                    } else {
+                        // something else which we just pass on
+                        return Err(e)
+                    }
+                },
+            }
+        }
     }
-    fn save_state(&mut self) {
+    fn save_state(&mut self, pc: u16) -> std::io::Result<()> {
+        let mut savestate = File::create(SAVESTATE_BIN)?;
+        for x in self.memory.iter().chain(self.regs.iter()).map(Cell::encode) {
+            savestate.write_all(&[x as u8, (x >> 8) as u8])?;
+        }
+        savestate.write_all(&[pc as u8, (pc >> 8) as u8])?;
+        for x in self.stack.iter().map(Cell::encode) {
+            savestate.write_all(&[x as u8, (x >> 8) as u8])?;
+        }
+        Ok(())
     }
 
     fn next(&self, pc: &mut u16) -> Cell {
@@ -312,7 +343,7 @@ impl Program {
                 Cell::In => {
                     let mut b = [0u8];
                     if 0 == stdin().read(&mut b).unwrap() {
-                        self.save_state();
+                        self.save_state(pc - 1).unwrap(); // restart the In
                         break;
                     }
                     if b[0] == b'\r' {
@@ -327,7 +358,7 @@ impl Program {
     }
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> std::io::Result<()> {
     let mut program = Program {
         memory: [Cell::Halt; MEM_SIZE],
         regs: [Cell::Halt; 8],

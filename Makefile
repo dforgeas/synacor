@@ -1,3 +1,6 @@
+.PHONY: all
+all: vm dis rvm
+
 vm: vm.cpp
 	g++ -O2 -o vm vm.cpp -Wall
 dis: dis.cpp
