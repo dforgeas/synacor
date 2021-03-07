@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{stdout, stdin, Read, Write, ErrorKind};
+use std::io::{stdout, stdin, Read, Write};
 use std::convert::TryInto;
 
 enum _Arg
@@ -185,20 +185,12 @@ impl Program {
         }
         savestate.read_exact(&mut b)?;
         let pc = b[0] as u16 | (b[1] as u16) << 8;
-        loop {
-            match savestate.read_exact(&mut b) {
-                Ok(_) => self.stack.push(Cell::decode(b[0] as u16 | (b[1] as u16) << 8)),
-                Err(e) => {
-                    if e.kind() == ErrorKind::UnexpectedEof {
-                        // we found the end of the stack
-                        return Ok(pc)
-                    } else {
-                        // something else which we just pass on
-                        return Err(e)
-                    }
-                },
-            }
+        let mut binary = Vec::new();
+        savestate.read_to_end(&mut binary)?;
+        for (a, b) in PairIter::new(binary.iter()) {
+            self.stack.push(Cell::decode(*a as u16 | (*b as u16) << 8));
         }
+        Ok(pc)
     }
     fn save_state(&mut self, pc: u16) -> std::io::Result<()> {
         let mut savestate = File::create(SAVESTATE_BIN)?;
