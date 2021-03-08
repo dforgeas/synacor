@@ -220,9 +220,16 @@ impl Program {
             self.regs[r as usize] = b
         }
     }
+    fn ternary<O>(&mut self, pc: &mut u16, oper: O)
+        where O: Fn(u16, u16) -> u16
+    {
+        let a = self.next(pc);
+        let b = self.rreg(self.next(pc)).encode();
+        let c = self.rreg(self.next(pc)).encode();
+        self.wreg(a, Cell::decode(oper(b, c)));
+    }
 
-    fn run(&mut self, pc: u16) {
-        let mut pc = pc;
+    fn run(&mut self, mut pc: u16) {
         loop {
             let c = self.next(&mut pc);
             match c {
@@ -272,34 +279,19 @@ impl Program {
                     }
                 },
                 Cell::Add => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc)).encode();
-                    let c = self.rreg(self.next(&mut pc)).encode();
-                    self.wreg(a, Cell::decode(b + c & MAX));
+                    self.ternary(&mut pc, |b, c| b + c & MAX);
                 },
                 Cell::Mult => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc)).encode();
-                    let c = self.rreg(self.next(&mut pc)).encode();
-                    self.wreg(a, Cell::decode(b * c & MAX));
+                    self.ternary(&mut pc, |b, c| b * c & MAX);
                 },
                 Cell::Mod => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc)).encode();
-                    let c = self.rreg(self.next(&mut pc)).encode();
-                    self.wreg(a, Cell::decode(b % c));
+                    self.ternary(&mut pc, |b, c| b % c);
                 },
                 Cell::And => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc)).encode();
-                    let c = self.rreg(self.next(&mut pc)).encode();
-                    self.wreg(a, Cell::decode(b & c));
+                    self.ternary(&mut pc, |b, c| b & c);
                 },
                 Cell::Or => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc)).encode();
-                    let c = self.rreg(self.next(&mut pc)).encode();
-                    self.wreg(a, Cell::decode(b | c));
+                    self.ternary(&mut pc, |b, c| b | c);
                 },
                 Cell::Not => {
                     let a = self.next(&mut pc);
