@@ -143,6 +143,12 @@ int run(word pc)
 		trace.open(TRACE_BIN, std::ios::binary);
 	}
 #define NEXTWORD nextProgramWord(pc)
+	auto ternary = [&pc] (auto&& oper) {
+		const word a = NEXTWORD;
+		const word b = readReg(NEXTWORD);
+		const word c = readReg(NEXTWORD);
+		writeReg(a, oper(b, c));
+	};
 	for ( ;; )
 	{
 		switch (NEXTWORD)
@@ -173,17 +179,11 @@ int run(word pc)
 			break;
 		case i_eq:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, b == c);
+				ternary([](word b, word c){ return b == c; });
 			} break;
 		case i_gt:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, b > c);
+				ternary([](word b, word c){ return b > c; });
 			} break;
 		case i_jmp:
 			{
@@ -204,38 +204,23 @@ int run(word pc)
 			} break;
 		case i_add:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, (b + c) & max);
+				ternary([](word b, word c){ return (b + c) & max; });
 			} break;
 		case i_mult:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, (b * c) & max);
+				ternary([](word b, word c){ return (b * c) & max; });
 			} break;
 		case i_mod:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, b % c);
+				ternary([](word b, word c){ return b % c; });
 			} break;
 		case i_and:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, b & c);
+				ternary([](word b, word c){ return b & c; });
 			} break;
 		case i_or:
 			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				const word c = readReg(NEXTWORD);
-				writeReg(a, b | c);
+				ternary([](word b, word c){ return b | c; });
 			} break;
 		case i_not:
 			{

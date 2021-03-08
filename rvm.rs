@@ -249,16 +249,10 @@ impl Program {
                     self.wreg(a, top);
                 },
                 Cell::Eq => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc));
-                    let c = self.rreg(self.next(&mut pc));
-                    self.wreg(a, Cell::decode((b == c).into()));
+                    self.ternary(&mut pc, |b, c| (b == c).into());
                 },
                 Cell::Gt => {
-                    let a = self.next(&mut pc);
-                    let b = self.rreg(self.next(&mut pc)).encode();
-                    let c = self.rreg(self.next(&mut pc)).encode();
-                    self.wreg(a, Cell::decode((b > c).into()));
+                    self.ternary(&mut pc, |b, c| (b > c).into());
                 },
                 Cell::Jmp => {
                     let a = self.rreg(self.next(&mut pc)).encode();
