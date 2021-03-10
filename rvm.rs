@@ -35,7 +35,7 @@ enum _Instr
     Data(u16)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 enum Cell
 {
     Halt,
@@ -261,14 +261,15 @@ impl Program {
                 Cell::Jt => {
                     let a = self.rreg(self.next(&mut pc));
                     let b = self.next(&mut pc);
-                    if a != Cell::Halt {
+                    if let Cell::Halt = a {
+                    } else {
                         pc = self.rreg(b).encode();
                     }
                 },
                 Cell::Jf => {
                     let a = self.rreg(self.next(&mut pc));
                     let b = self.next(&mut pc);
-                    if a == Cell::Halt {
+                    if let Cell::Halt = a {
                         pc = self.rreg(b).encode();
                     }
                 },
