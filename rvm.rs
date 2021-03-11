@@ -35,6 +35,10 @@ enum _Instr
     Data(u16)
 }
 
+// This is not intended for the highest performance,
+// rather it's about adding more type safety with natural
+// features of Rust. Every Cell is then 32 bits instead of 16.
+// A small benefit is that the register indices are precomputed.
 #[derive(Clone, Copy, Debug)]
 enum Cell
 {
@@ -102,20 +106,24 @@ impl Cell
         }
     }
 
+    fn decode_from_bytes(a: u8, b: u8) -> Cell {
+        Cell::decode(a as u16 | (b as u16) << 8)
+    }
+
     fn encode(&self) -> u16
     {
         match self
         {
-            Cell::Halt=>0 ,
-            Cell::Set=>1 ,
-            Cell::Push=>2 ,
-            Cell::Pop=>3 ,
-            Cell::Eq=>4 ,
-            Cell::Gt=>5 ,
-            Cell::Jmp=>6 ,
-            Cell::Jt=>7 ,
-            Cell::Jf=>8 ,
-            Cell::Add=>9 ,
+            Cell::Halt=>0,
+            Cell::Set=>1,
+            Cell::Push=>2,
+            Cell::Pop=>3,
+            Cell::Eq=>4,
+            Cell::Gt=>5,
+            Cell::Jmp=>6,
+            Cell::Jt=>7,
+            Cell::Jf=>8,
+            Cell::Add=>9,
             Cell::Mult=>10,
             Cell::Mod=>11,
             Cell::And=>12,
@@ -132,8 +140,15 @@ impl Cell
             Cell::Reg(x) => *x + REG_START,
         }
     }
+
+    fn encode_to_bytes(&self) -> (u8, u8) {
+        let x = self.encode();
+        (x as u8, (x >> 8) as u8)
+    }
 }
 
+// This is similar to .chunk(2), but returning a tuple
+// and getting used to making our own Iterator and generic structs.
 pub struct PairIter<I: Iterator> {
     i: I
 }
@@ -171,7 +186,7 @@ impl Program {
         let mut binary = Vec::new();
         challenge.read_to_end(&mut binary)?;
         for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
-            self.memory[i] = Cell::decode(*a as u16 | (*b as u16) << 8);
+            self.memory[i] = Cell::decode_from_bytes(*a, *b);
         }
 
         Ok(0u16) // pc
@@ -181,25 +196,25 @@ impl Program {
         let mut b = [0u8; 2];
         for r in self.memory.iter_mut().chain(self.regs.iter_mut()) {
             savestate.read_exact(&mut b)?;
-            *r = Cell::decode(b[0] as u16 | (b[1] as u16) << 8);
+            *r = Cell::decode_from_bytes(b[0], b[1]);
         }
         savestate.read_exact(&mut b)?;
         let pc = b[0] as u16 | (b[1] as u16) << 8;
         let mut binary = Vec::new();
         savestate.read_to_end(&mut binary)?;
         for (a, b) in PairIter::new(binary.iter()) {
-            self.stack.push(Cell::decode(*a as u16 | (*b as u16) << 8));
+            self.stack.push(Cell::decode_from_bytes(*a, *b));
         }
         Ok(pc)
     }
     fn save_state(&mut self, pc: u16) -> std::io::Result<()> {
         let mut savestate = File::create(SAVESTATE_BIN)?;
-        for x in self.memory.iter().chain(self.regs.iter()).map(Cell::encode) {
-            savestate.write_all(&[x as u8, (x >> 8) as u8])?;
+        for (a, b) in self.memory.iter().chain(self.regs.iter()).map(Cell::encode_to_bytes) {
+            savestate.write_all(&[a, b])?;
         }
         savestate.write_all(&[pc as u8, (pc >> 8) as u8])?;
-        for x in self.stack.iter().map(Cell::encode) {
-            savestate.write_all(&[x as u8, (x >> 8) as u8])?;
+        for (a, b) in self.stack.iter().map(Cell::encode_to_bytes) {
+            savestate.write_all(&[a, b])?;
         }
         Ok(())
     }
@@ -341,7 +356,7 @@ fn main() -> std::io::Result<()> {
     let mut program = Program {
         memory: [Cell::Halt; MEM_SIZE],
         regs: [Cell::Halt; 8],
-        stack: Vec::new(),
+        stack: Vec::with_capacity(16),
     };
     let loaded = program.load_state();
     let pc = match loaded {
