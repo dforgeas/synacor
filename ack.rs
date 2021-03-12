@@ -1,5 +1,3 @@
-use std::io::prelude::*;
-
 struct MemAck {
     mem: std::collections::HashMap<(u16, u16), u16>,
     x: u16,
@@ -31,21 +29,22 @@ impl MemAck {
     }
 }
 
-const NUM_THREADS: usize = 4;
+const NUM_THREADS: u16 = 4;
 
 fn main() {
     // TODO: implement the search in multiple threads
     // and set a suitable stack size for them: https://doc.rust-lang.org/std/thread/index.html#stack-size
-    let mut threads = Vec::with_capacity(NUM_THREADS);
+    // perhaps the default 2MB of stack size Rust allocates will be sufficent?
+    // it seems not, I tried with 16MB and it worked
+    let mut threads = Vec::with_capacity(NUM_THREADS as usize);
     for i in 0..NUM_THREADS {
-        threads.push(std::thread::spawn(move |i| {
+        threads.push(std::thread::spawn(move || {
             let mut mem_ack = MemAck::new();
             let mut x = i;
             while x < 0x8000 {
-                print!("{}", x); std::io::stdout().flush().unwrap();
                 mem_ack.reset(x);
                 let a = mem_ack.ack(4, 1);
-                println!(" -> {}{}", a, if a == 6 {" OK"} else { "" });
+                println!("{} -> {}{}", x, a, if a == 6 {" OK"} else { "" });
                 x += NUM_THREADS;
             }
         }));
