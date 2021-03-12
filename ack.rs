@@ -33,6 +33,8 @@ impl MemAck {
 
 fn main() {
     let mut mem_ack = MemAck::new();
+    // TODO: implement the search in multiple threads
+    // and set a suitable stack size for them: https://doc.rust-lang.org/std/thread/index.html#stack-size
     for x in 2..0x8000 {
         print!("{}", x); std::io::stdout().flush().unwrap();
         mem_ack.reset(x);
