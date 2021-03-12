@@ -6,7 +6,7 @@ struct hash
 {
 	std::size_t operator()(const std::pair<short, short> k) const
 	{
-		return k.first | (k.second << 16);
+		return k.first * 05 ^ k.second * 0200001;
 	}
 };
 std::unordered_map<std::pair<short, short>, short, hash> mem;
