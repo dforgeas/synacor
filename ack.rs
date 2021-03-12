@@ -38,7 +38,8 @@ fn main() {
     // it seems not, I tried with 16MB and it worked
     let mut threads = Vec::with_capacity(NUM_THREADS as usize);
     for i in 0..NUM_THREADS {
-        threads.push(std::thread::spawn(move || {
+        threads.push(std::thread::Builder::new()
+                     .stack_size(1 << 24).spawn(move || {
             let mut mem_ack = MemAck::new();
             let mut x = i;
             while x < 0x8000 {
@@ -47,7 +48,7 @@ fn main() {
                 println!("{} -> {}{}", x, a, if a == 6 {" OK"} else { "" });
                 x += NUM_THREADS;
             }
-        }));
+        }).unwrap());
     }
     for t in threads {
         t.join().unwrap();
