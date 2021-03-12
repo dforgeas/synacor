@@ -31,14 +31,26 @@ impl MemAck {
     }
 }
 
+const NUM_THREADS: usize = 4;
+
 fn main() {
-    let mut mem_ack = MemAck::new();
     // TODO: implement the search in multiple threads
     // and set a suitable stack size for them: https://doc.rust-lang.org/std/thread/index.html#stack-size
-    for x in 2..0x8000 {
-        print!("{}", x); std::io::stdout().flush().unwrap();
-        mem_ack.reset(x);
-        let a = mem_ack.ack(4, 1);
-        println!(" -> {}{}", a, if a == 6 {" OK"} else { "" });
+    let mut threads = Vec::with_capacity(NUM_THREADS);
+    for i in 0..NUM_THREADS {
+        threads.push(std::thread::spawn(move |i| {
+            let mut mem_ack = MemAck::new();
+            let mut x = i;
+            while x < 0x8000 {
+                print!("{}", x); std::io::stdout().flush().unwrap();
+                mem_ack.reset(x);
+                let a = mem_ack.ack(4, 1);
+                println!(" -> {}{}", a, if a == 6 {" OK"} else { "" });
+                x += NUM_THREADS;
+            }
+        }));
+    }
+    for t in threads {
+        t.join().unwrap();
     }
 }
