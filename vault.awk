@@ -51,7 +51,9 @@ function go(i, j, weight, oper, dir, txt,    cell) {
 		if (weight == end_weight) ok = "ok"
 		else ok = ""
 		if (end_i == i && end_j == j && weight == end_weight) ok = ok " OK"
-		print dir, "->", txt, "->", weight, ok
+		if (ok != "") {
+			print dir, "->", txt, "->", weight, ok
+		}
 	#} else {
 		if (i > 1 && (i-1 != start_i || j != start_j)) go(i - 1, j, weight, oper, dir "W", txt)
 		if (i < 4) go(i + 1, j, weight, oper, dir "E", txt)

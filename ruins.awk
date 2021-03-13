@@ -10,9 +10,13 @@ BEGIN {
 	
 	for (a=1;a<=n_coins;a++)
 	for (b=1;b<=n_coins;b++)
+	if (b != a)
 	for (c=1;c<=n_coins;c++)
+	if (c != a && c != b)
 	for (d=1;d<=n_coins;d++)
-	for (e=1;e<=n_coins;e++) {
+	if (d != a && d != b && d != c)
+	for (e=1;e<=n_coins;e++)
+	if (e != a && e != b && e != c && e != d) {
 		if (coins[a] + coins[b] * coins[c]^2 + coins[d]^3 - coins[e] == 399) {
 			print names[a], names[b], names[c], names[d], names[e]
 		}
