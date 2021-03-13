@@ -32,10 +32,6 @@ impl MemAck {
 const NUM_THREADS: u16 = 4;
 
 fn main() {
-    // TODO: implement the search in multiple threads
-    // and set a suitable stack size for them: https://doc.rust-lang.org/std/thread/index.html#stack-size
-    // perhaps the default 2MB of stack size Rust allocates will be sufficent?
-    // it seems not, I tried with 16MB and it worked
     let mut threads = Vec::with_capacity(NUM_THREADS as usize);
     for i in 0..NUM_THREADS {
         threads.push(std::thread::Builder::new()
