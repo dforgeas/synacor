@@ -38,7 +38,8 @@ enum _Instr
 // This is not intended for the highest performance,
 // rather it's about adding more type safety with natural
 // features of Rust. Every Cell is then 32 bits instead of 16.
-// A small benefit is that the register indices are precomputed.
+// Small benefits are that the register indices are precomputed,
+// and the values are in native endianness.
 #[derive(Clone, Copy, Debug)]
 enum Cell
 {
@@ -106,8 +107,8 @@ impl Cell
         }
     }
 
-    fn decode_from_bytes(a: u8, b: u8) -> Cell {
-        Cell::decode(a as u16 | (b as u16) << 8)
+    fn decode_from_bytes(b: [u8; 2]) -> Cell {
+        Cell::decode(u16::from_le_bytes(b))
     }
 
     fn encode(&self) -> u16
@@ -141,9 +142,8 @@ impl Cell
         }
     }
 
-    fn encode_to_bytes(&self) -> (u8, u8) {
-        let x = self.encode();
-        (x as u8, (x >> 8) as u8)
+    fn encode_to_bytes(&self) -> [u8; 2] {
+        self.encode().to_le_bytes()
     }
 }
 
@@ -186,7 +186,7 @@ impl Program {
         let mut binary = Vec::new();
         challenge.read_to_end(&mut binary)?;
         for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
-            self.memory[i] = Cell::decode_from_bytes(*a, *b);
+            self.memory[i] = Cell::decode_from_bytes([*a, *b]);
         }
 
         Ok(0u16) // pc
@@ -196,25 +196,25 @@ impl Program {
         let mut b = [0u8; 2];
         for r in self.memory.iter_mut().chain(self.regs.iter_mut()) {
             savestate.read_exact(&mut b)?;
-            *r = Cell::decode_from_bytes(b[0], b[1]);
+            *r = Cell::decode_from_bytes(b);
         }
         savestate.read_exact(&mut b)?;
         let pc = b[0] as u16 | (b[1] as u16) << 8;
         let mut binary = Vec::new();
         savestate.read_to_end(&mut binary)?;
         for (a, b) in PairIter::new(binary.iter()) {
-            self.stack.push(Cell::decode_from_bytes(*a, *b));
+            self.stack.push(Cell::decode_from_bytes([*a, *b]));
         }
         Ok(pc)
     }
     fn save_state(&mut self, pc: u16) -> std::io::Result<()> {
         let mut savestate = File::create(SAVESTATE_BIN)?;
-        for (a, b) in self.memory.iter().chain(self.regs.iter()).map(Cell::encode_to_bytes) {
-            savestate.write_all(&[a, b])?;
+        for b in self.memory.iter().chain(self.regs.iter()).map(Cell::encode_to_bytes) {
+            savestate.write_all(&b)?;
         }
-        savestate.write_all(&[pc as u8, (pc >> 8) as u8])?;
-        for (a, b) in self.stack.iter().map(Cell::encode_to_bytes) {
-            savestate.write_all(&[a, b])?;
+        savestate.write_all(&pc.to_le_bytes())?;
+        for b in self.stack.iter().map(Cell::encode_to_bytes) {
+            savestate.write_all(&b)?;
         }
         Ok(())
     }
