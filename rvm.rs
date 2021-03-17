@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{stdout, stdin, Read, Write, BufReader, BufWriter};
 use std::convert::TryInto;
+use std::slice;
 
 enum _Arg
 {
@@ -245,6 +246,11 @@ impl Program {
     }
 
     fn run(&mut self, mut pc: u16) {
+        // lock them once because nothing else uses them here
+        let stdin = stdin();
+        let stdout = stdout();
+        let mut stdin = stdin.lock();
+        let mut stdout = stdout.lock();
         loop {
             let c = self.next(&mut pc);
             match c {
@@ -332,18 +338,18 @@ impl Program {
                 },
                 Cell::Out => {
                     let a = self.rreg(self.next(&mut pc));
-                    stdout().write(&[a.encode().try_into().unwrap()]).unwrap();
+                    stdout.write(slice::from_ref(&a.encode().try_into().unwrap())).unwrap();
                 }
                 Cell::In => {
-                    let mut b = [0u8];
-                    if 0 == stdin().read(&mut b).unwrap() {
+                    let mut b = 0;
+                    if 0 == stdin.read(slice::from_mut(&mut b)).unwrap() {
                         self.save_state(pc - 1).unwrap(); // restart the In
                         break;
                     }
-                    if b[0] == b'\r' {
-                        stdin().read(&mut b).unwrap(); // unlikely this could be EOF here
+                    if b == b'\r' {
+                        stdin.read(slice::from_mut(&mut b)).unwrap(); // unlikely this could be EOF here
                     }
-                    self.wreg(self.next(&mut pc), Cell::decode(b[0].into()));
+                    self.wreg(self.next(&mut pc), Cell::decode(b.into()));
                 }
                 Cell::Noop => continue,
                 _ => panic!("Invalid instruction: {:?} at {:x}!", c, pc-1),
