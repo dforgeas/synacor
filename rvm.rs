@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{stdout, stdin, Read, Write};
+use std::io::{stdout, stdin, Read, Write, BufReader, BufWriter};
 use std::convert::TryInto;
 
 enum _Arg
@@ -192,14 +192,14 @@ impl Program {
         Ok(0u16) // pc
     }
     fn load_state(&mut self) -> std::io::Result<u16> {
-        let mut savestate = File::open(SAVESTATE_BIN)?;
+        let mut savestate = BufReader::new(File::open(SAVESTATE_BIN)?);
         let mut b = [0u8; 2];
         for r in self.memory.iter_mut().chain(self.regs.iter_mut()) {
             savestate.read_exact(&mut b)?;
             *r = Cell::decode_from_bytes(b);
         }
         savestate.read_exact(&mut b)?;
-        let pc = b[0] as u16 | (b[1] as u16) << 8;
+        let pc = u16::from_le_bytes(b);
         let mut binary = Vec::new();
         savestate.read_to_end(&mut binary)?;
         for (a, b) in PairIter::new(binary.iter()) {
@@ -208,7 +208,7 @@ impl Program {
         Ok(pc)
     }
     fn save_state(&mut self, pc: u16) -> std::io::Result<()> {
-        let mut savestate = File::create(SAVESTATE_BIN)?;
+        let mut savestate = BufWriter::new(File::create(SAVESTATE_BIN)?);
         for b in self.memory.iter().chain(self.regs.iter()).map(Cell::encode_to_bytes) {
             savestate.write_all(&b)?;
         }
