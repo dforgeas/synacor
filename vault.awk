@@ -16,7 +16,7 @@
 			} else if (substr($f, 1, 5) == "vault") {
 				end_i = i - 1
 				end_j = j
-				end_weight = grid[i, j]
+				end_weight = weight
 			}
 		} else {
 			grid[i, j] = $f
