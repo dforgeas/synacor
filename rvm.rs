@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{stdout, stdin, Read, Write, BufReader, BufWriter};
 use std::convert::TryInto;
 use std::slice;
@@ -183,9 +183,7 @@ struct Program {
 
 impl Program {
     fn load_challenge(&mut self) -> std::io::Result<u16> {
-        let mut challenge = File::open("challenge.bin")?;
-        let mut binary = Vec::new();
-        challenge.read_to_end(&mut binary)?;
+        let binary = fs::read("challenge.bin")?;
         for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
             self.memory[i] = Cell::decode_from_bytes([*a, *b]);
         }
