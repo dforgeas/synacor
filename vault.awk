@@ -57,7 +57,7 @@ function go(i, j, weight, oper, dir, txt,    cell) {
 	#} else {
 		if (i > start_i && (i-1 != start_i || j != start_j)) go(i - 1, j, weight, oper, dir "W", txt)
 		if (i < end_i) go(i + 1, j, weight, oper, dir "E", txt)
-		if (j > end_j && (i != start_i || j-1 != start_j)) go(i, j - 1, weight, oper, dir "N", txt)
-		if (j < start_j) go(i, j + 1, weight, oper, dir "S", txt)
+		if (j > end_j) go(i, j - 1, weight, oper, dir "N", txt)
+		if (j < start_j && (i != start_i || j-1 != start_j)) go(i, j + 1, weight, oper, dir "S", txt)
 	#}
 }

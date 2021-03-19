@@ -27,7 +27,7 @@ fn main() -> std::io::Result<()> {
     let file = BufReader::new(File::open("vault_lock.txt")?);
     for (j, line) in file.lines().enumerate() {
         let j = j.try_into().unwrap();
-        for (i, field) in line?.split_whitespace().enumerate() {
+        for (i, field) in line?.split_whitespace().filter(|x| !x.contains('|')).enumerate() {
             let i = i.try_into().unwrap();
             match field {
                 "|" => continue,
@@ -39,7 +39,7 @@ fn main() -> std::io::Result<()> {
                     vault.grid.insert((i, j), Cell::Num(weight));
                     match name {
                         "orb" => vault.start = (i, j),
-                        "vault" => { vault.end = (i, j); vault.end_weight = weight },
+                        "vault" => { vault.end = (i - 1, j); vault.end_weight = weight },
                         _ => panic!("name {:?} not recognized", name),
                     }
                 },
@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
     println!("start_i {}, start_j {}, end_i {}, end_j {}", vault.start.0, vault.start.1, vault.end.0, vault.end.1);
     if let Cell::Num(weight) = vault.grid.get(&vault.start).unwrap() {
         let weight = *weight;
-        write!(vault.txt, "{}", weight);
+        write!(vault.txt, "{}", weight).unwrap();
         vault.go(vault.start, weight, '$');
     } else {
         panic!("starting cell has got an unvalid weight: {:?}", vault.grid.get(&vault.start).unwrap());
@@ -79,10 +79,11 @@ impl Vault {
                     '-' => weight -= c,
                     '+' => weight += c,
                     '*' => weight *= c,
+                    '$' => {} // skip the start cell
                     _ => panic!("oper not recognized: {:?}", oper)
                 }
-                write!(self.txt, " {}{}", oper, c);
-                oper = '@'; // an invalid value again
+                if oper != '$' { write!(self.txt, " {}{}", oper, c).unwrap(); }
+                oper = '@'; // an invalid value
             },
             Cell::Oper(o) => oper = o, // store here because it applies to the next step with a Cell::Num
         }
@@ -104,12 +105,12 @@ impl Vault {
             self.go((i + 1, j), weight, oper);
             self.dir.pop();
         }
-        if j > end_j && (i != start_i || j-1 != start_j) {
+        if j > end_j {
             self.dir.push('N');
             self.go((i, j - 1), weight, oper);
             self.dir.pop();
         }
-        if j < start_j {
+        if j < start_j && (i != start_i || j+1 != start_j) {
             self.dir.push('S');
             self.go((i, j + 1), weight, oper);
             self.dir.pop();
