@@ -87,10 +87,8 @@ impl Vault {
             },
             Cell::Oper(o) => oper = o, // store here because it applies to the next step with a Cell::Num
         }
-        let mut ok = if weight == self.end_weight { "ok".to_owned() } else { "".to_owned() };
-        if self.end == pos && weight == self.end_weight { ok.push_str(" OK"); }
-        if  weight == self.end_weight {
-            println!("{} -> {} -> {} {}", self.dir, self.txt, weight, ok);
+        if weight == self.end_weight {
+            println!("{} -> {} -> {} ok{}", self.dir, self.txt, weight, if self.end == pos {" OK"} else {""} );
         }
         let (i, j) = pos;
         let (start_i, start_j) = self.start;
