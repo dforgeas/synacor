@@ -1,6 +1,8 @@
 use std::io::{prelude::*, BufReader};
 use std::fs::File;
 use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt::Write;
 
 #[derive(Debug, Clone, Copy)]
 enum Cell {
@@ -8,14 +10,25 @@ enum Cell {
     Oper(char),
 }
 
+#[derive(Default)]
+struct Vault {
+    grid: HashMap<(u16, u16), Cell>,
+    start: (u16, u16),
+    end: (u16, u16),
+    end_weight: u16,
+
+    // these two used as stacks, to avoid too many memory allocations
+    dir: String,
+    txt: String,
+}
+
 fn main() -> std::io::Result<()> {
-    let mut grid = HashMap::new();
-    let mut start = (0, 0);
-    let mut end = (0, 0);
-    let mut end_weight = 0;
+    let mut vault = Vault::default();
     let file = BufReader::new(File::open("vault_lock.txt")?);
     for (j, line) in file.lines().enumerate() {
+        let j = j.try_into().unwrap();
         for (i, field) in line?.split_whitespace().enumerate() {
+            let i = i.try_into().unwrap();
             match field {
                 "|" => continue,
                 assign if assign.contains('=') => {
@@ -23,10 +36,10 @@ fn main() -> std::io::Result<()> {
                     // skip '=' that is returned part of the weight after split_at
                     let weight = (&weight[1..]).parse::<u16>().expect("weight isn't a valid number");
                     println!("weight {}", weight);
-                    grid.insert((i, j), Cell::Num(weight));
+                    vault.grid.insert((i, j), Cell::Num(weight));
                     match name {
-                        "orb" => start = (i, j),
-                        "vault" => { end = (i, j); end_weight = weight },
+                        "orb" => vault.start = (i, j),
+                        "vault" => { vault.end = (i, j); vault.end_weight = weight },
                         _ => panic!("name {:?} not recognized", name),
                     }
                 },
@@ -35,10 +48,73 @@ fn main() -> std::io::Result<()> {
                         Ok(u) => Cell::Num(u),
                         Err(_) => Cell::Oper(field.chars().next().unwrap()),
                     };
-                    grid.insert((i, j), cell);
+                    vault.grid.insert((i, j), cell);
                 }
             }
         }
     }
+
+    // now solve the puzzle
+    println!("start_i {}, start_j {}, end_i {}, end_j {}", vault.start.0, vault.start.1, vault.end.0, vault.end.1);
+    if let Cell::Num(weight) = vault.grid.get(&vault.start).unwrap() {
+        let weight = *weight;
+        write!(vault.txt, "{}", weight);
+        vault.go(vault.start, weight, '$');
+    } else {
+        panic!("starting cell has got an unvalid weight: {:?}", vault.grid.get(&vault.start).unwrap());
+    }
     Ok(())
+}
+
+impl Vault {
+    fn go(&mut self, pos: (u16, u16), mut weight: u16, mut oper: char) {
+        if self.dir.len() > 12 {
+            return;
+        }
+        let old_txt_len = self.txt.len();
+        let cell = self.grid.get(&pos).unwrap();
+        match *cell {
+            Cell::Num(c) => {
+                match oper {
+                    '-' => weight -= c,
+                    '+' => weight += c,
+                    '*' => weight *= c,
+                    _ => panic!("oper not recognized: {:?}", oper)
+                }
+                write!(self.txt, " {}{}", oper, c);
+                oper = '@'; // an invalid value again
+            },
+            Cell::Oper(o) => oper = o, // store here because it applies to the next step with a Cell::Num
+        }
+        let mut ok = if weight == self.end_weight { "ok".to_owned() } else { "".to_owned() };
+        if self.end == pos && weight == self.end_weight { ok.push_str(" OK"); }
+        if  weight == self.end_weight {
+            println!("{} -> {} -> {} {}", self.dir, self.txt, weight, ok);
+        }
+        let (i, j) = pos;
+        let (start_i, start_j) = self.start;
+        let (end_i, end_j) = self.end;
+        if i > start_i && (i-1 != start_i || j != start_j) {
+            self.dir.push('W');
+            self.go((i - 1, j), weight, oper);
+            self.dir.pop();
+        }
+        if i < end_i {
+            self.dir.push('E');
+            self.go((i + 1, j), weight, oper);
+            self.dir.pop();
+        }
+        if j > end_j && (i != start_i || j-1 != start_j) {
+            self.dir.push('N');
+            self.go((i, j - 1), weight, oper);
+            self.dir.pop();
+        }
+        if j < start_j {
+            self.dir.push('S');
+            self.go((i, j + 1), weight, oper);
+            self.dir.pop();
+        }
+
+        self.txt.truncate(old_txt_len);
+    }
 }
