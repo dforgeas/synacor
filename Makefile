@@ -1,5 +1,5 @@
 .PHONY: all
-all: vm dis ack rvm rack rvault
+all: vm dis ack rvm rack rvault rruins
 
 vm: vm.cpp
 	g++ -O2 -o vm vm.cpp -Wall -std=c++17
@@ -10,8 +10,10 @@ ack: ack.cpp
 RUST=rustc
 RUST_FLAGS=--edition 2018 -O
 rvm: rvm.rs
-	$(RUST) $(RUST_FLAGS) rvm.rs
+	$(RUST) $(RUST_FLAGS) $<
 rack: rack.rs
-	$(RUST) $(RUST_FLAGS) rack.rs
+	$(RUST) $(RUST_FLAGS) $<
 rvault: rvault.rs
-	$(RUST) $(RUST_FLAGS) rvault.rs
+	$(RUST) $(RUST_FLAGS) $<
+rruins: rruins.rs
+	$(RUST) $(RUST_FLAGS) $<
