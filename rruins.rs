@@ -1,9 +1,31 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::hash::{Hasher, BuildHasher};
+struct SimpleHasher {
+    h: usize
+}
+impl Hasher for SimpleHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for x in bytes.iter() {
+            self.h = (self.h << 7) ^ (*x as usize).wrapping_mul(0x10001);
+        }
+    }
+    fn finish(&self) -> u64 {
+        self.h as u64
+    }
+}
+#[derive(Default)]
+struct SimpleHashBuilder{}
+impl BuildHasher for SimpleHashBuilder {
+    type Hasher = SimpleHasher;
+    fn build_hasher(&self) -> Self::Hasher {
+        SimpleHasher{h: 0}
+    }
+}
 fn main() {
     let coins = [("red", 2), ("corroded", 3), ("shiny", 5), ("concave", 7), ("blue", 9)]
-        .iter().cloned().collect::<HashMap<_,isize>>();
-    let mut seen = HashSet::with_capacity(coins.len());
+        .iter().cloned().collect::<HashMap<_,isize,SimpleHashBuilder>>();
+    let mut seen = HashSet::with_capacity_and_hasher(coins.len(), SimpleHashBuilder{});
     for (name_a, value_a) in coins.iter() {
         seen.insert(value_a);
         for (name_b, value_b) in coins.iter() {
