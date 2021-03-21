@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::{Hasher, BuildHasher};
 struct SimpleHasher {
@@ -23,8 +22,9 @@ impl BuildHasher for SimpleHashBuilder {
     }
 }
 fn main() {
-    let coins = [("red", 2), ("corroded", 3), ("shiny", 5), ("concave", 7), ("blue", 9)]
-        .iter().cloned().collect::<HashMap<_,isize,SimpleHashBuilder>>();
+    let coins = [("red", 2isize), ("corroded", 3), ("shiny", 5), ("concave", 7), ("blue", 9)]
+        // This is how to create a Hashmap, but really we just need an array here:
+        /*.iter().cloned().collect::<HashMap<_,isize,SimpleHashBuilder>>()*/;
     let mut seen = HashSet::with_capacity_and_hasher(coins.len(), SimpleHashBuilder{});
     for (name_a, value_a) in coins.iter() {
         seen.insert(value_a);
