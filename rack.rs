@@ -1,10 +1,33 @@
+use std::hash::{Hasher, BuildHasher};
+struct SimpleHasher {
+    h: usize
+}
+impl Hasher for SimpleHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for x in bytes.iter() {
+            self.h = (self.h << 7) ^ (*x as usize).wrapping_mul(0x10001);
+        }
+    }
+    fn finish(&self) -> u64 {
+        self.h as u64
+    }
+}
+#[derive(Default)]
+struct SimpleHashBuilder{}
+impl BuildHasher for SimpleHashBuilder {
+    type Hasher = SimpleHasher;
+    fn build_hasher(&self) -> Self::Hasher {
+        SimpleHasher{h: 0}
+    }
+}
+
 struct MemAck {
-    mem: std::collections::HashMap<(u16, u16), u16>,
+    mem: std::collections::HashMap<(u16, u16), u16, SimpleHashBuilder>,
     x: u16,
 }
 impl MemAck {
     fn new() -> MemAck {
-        MemAck{ mem: std::collections::HashMap::new(), x: 0 }
+        MemAck{ mem: Default::default(), x: 0 }
     }
     fn reset(&mut self, x: u16) {
         self.mem.clear();
