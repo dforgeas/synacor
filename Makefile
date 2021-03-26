@@ -6,7 +6,7 @@ vm: vm.cpp
 dis: dis.cpp
 	g++ -O2 -o dis dis.cpp -Wall -std=c++17
 ack: ack.cpp
-	g++ -O2 -o ack ack.cpp -Wall -std=c++17
+	g++ -O2 -o ack ack.cpp -Wall -std=c++17 -Wl,--stack,$$(( 1 << 24 ))
 RUST=rustc
 RUST_FLAGS=--edition 2018 -O
 rvm: rvm.rs
