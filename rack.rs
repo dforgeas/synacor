@@ -52,7 +52,7 @@ impl MemAck {
     }
 }
 
-const NUM_THREADS: u16 = 4;
+const NUM_THREADS: u16 = 2;
 
 fn main() {
     let mut threads = Vec::with_capacity(NUM_THREADS as usize);
