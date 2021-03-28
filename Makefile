@@ -1,5 +1,5 @@
 .PHONY: all
-all: vm dis ack rvm rack rvault rruins
+all: vm dis ack rvm rack rvault rruins rteleport
 CXX=/home/david/devel/musl-cross-make/output/bin/m68k-linux-musl-g++
 vm: vm.cpp
 	$(CXX) -O2 -o vm vm.cpp -Wall -std=c++17
