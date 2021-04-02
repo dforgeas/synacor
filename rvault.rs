@@ -90,29 +90,31 @@ impl Vault {
         if weight == self.end_weight {
             println!("{} -> {} -> {} ok{}", self.dir, self.txt, weight, if self.end == pos {" OK"} else {""} );
         }
-        let (i, j) = pos;
-        let (start_i, start_j) = self.start;
-        let (end_i, end_j) = self.end;
-        if i > start_i && (i-1 != start_i || j != start_j) {
-            self.dir.push('W');
-            self.go((i - 1, j), weight, oper);
-            self.dir.pop();
-        }
-        if i < end_i {
-            self.dir.push('E');
-            self.go((i + 1, j), weight, oper);
-            self.dir.pop();
-        }
-        if j > end_j {
-            self.dir.push('N');
-            self.go((i, j - 1), weight, oper);
-            self.dir.pop();
-        }
-        if j < start_j && (i != start_i || j+1 != start_j) {
-            self.dir.push('S');
-            self.go((i, j + 1), weight, oper);
-            self.dir.pop();
-        }
+        if self.end != pos {
+            let (i, j) = pos;
+            let (start_i, start_j) = self.start;
+            let (end_i, end_j) = self.end;
+            if i > start_i && (i-1 != start_i || j != start_j) {
+                self.dir.push('W');
+                self.go((i - 1, j), weight, oper);
+                self.dir.pop();
+            }
+            if i < end_i {
+                self.dir.push('E');
+                self.go((i + 1, j), weight, oper);
+                self.dir.pop();
+            }
+            if j > end_j {
+                self.dir.push('N');
+                self.go((i, j - 1), weight, oper);
+                self.dir.pop();
+            }
+            if j < start_j && (i != start_i || j+1 != start_j) {
+                self.dir.push('S');
+                self.go((i, j + 1), weight, oper);
+                self.dir.pop();
+            }
+        } // else visiting the last room is only allowed once, so stop the search
 
         self.txt.truncate(old_txt_len);
     }
