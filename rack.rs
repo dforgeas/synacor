@@ -1,4 +1,6 @@
 use std::hash::{Hasher, BuildHasher};
+use std::sync::mpsc;
+use std::io::prelude::*;
 struct SimpleHasher {
     h: usize
 }
@@ -52,11 +54,33 @@ impl MemAck {
     }
 }
 
-const NUM_THREADS: u16 = 2;
+const NUM_THREADS: u16 = 4;
 
 fn main() {
     let mut threads = Vec::with_capacity(NUM_THREADS as usize);
+    let (tx, rx) = mpsc::channel();
+    // create the thread that reads rx and sorts integers in a priority queue
+    // don't add it to threads, instead join it last, because by itself it would not know when to stop yet
+    let output_thread = std::thread::spawn(move || {
+        // lock it once because nothing else uses them here
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock();
+        let mut heap = std::collections::BinaryHeap::new();
+        let mut expected = 0;
+        for (y, b) in rx.iter() {
+            heap.push(std::cmp::Reverse((y, b)));
+            while let Some(std::cmp::Reverse((x, a))) = heap.peek() {
+                if *x != expected {
+                    break;
+                }
+                writeln!(stdout, "{} -> {}{}", *x, *a, if *a == 6 {" OK"} else { "" }).unwrap();
+                heap.pop();
+                expected += 1;
+            }
+        }
+    });
     for i in 0..NUM_THREADS {
+        let tx = tx.clone();
         threads.push(std::thread::Builder::new()
                      .stack_size(1 << 24).spawn(move || {
             let mut mem_ack = MemAck::new();
@@ -64,7 +88,8 @@ fn main() {
             while x < 0x8000 {
                 mem_ack.reset(x);
                 let a = mem_ack.ack(4, 1);
-                println!("{} -> {}{}", x, a, if a == 6 {" OK"} else { "" });
+                // println!("{} -> {}{}", x, a, if a == 6 {" OK"} else { "" });
+                tx.send((x, a)).unwrap();
                 x += NUM_THREADS;
             }
         }).unwrap());
@@ -72,4 +97,8 @@ fn main() {
     for t in threads {
         t.join().unwrap();
     }
+    // send the <end> signal to tx, the clones are destroyed when the threads terminate
+    drop(tx);
+    // and join the receiver thread
+    output_thread.join().unwrap();
 }
