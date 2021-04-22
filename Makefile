@@ -1,8 +1,10 @@
 .PHONY: all
-all: vm dis ack rvm rack rvault rruins rteleport rmirror
-CXX=/home/david/devel/musl-cross-make/output/bin/m68k-linux-musl-g++
+all: vm dis ack rvm rack rvault rruins rteleport rmirror vm_jit
 vm: vm.cpp
 	$(CXX) -O2 -o vm vm.cpp -Wall -std=c++17
+# TODO: turn on optimisations
+vm_jit: vm_jit.cpp
+	$(CXX) -O0 -g3 -o vm_jit vm_jit.cpp -Wall -std=c++17
 dis: dis.cpp
 	$(CXX) -O2 -o dis dis.cpp -Wall -std=c++17
 ack: ack.cpp
