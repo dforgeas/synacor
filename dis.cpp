@@ -35,10 +35,14 @@ struct i_def
 };
 constexpr auto n_defs = sizeof defs / sizeof *defs;
 
-static std::string reg(unsigned char x, unsigned char y)
+static std::string reg(unsigned char x, unsigned char y, const i_def *def)
 {
-	if (0x80 & y) return '$' + std::to_string(x);
-	else return std::to_string(x | (y << 8));
+	if (0x80 & y)
+		return '$' + std::to_string(x);
+	else if (def->name[0] == 'o' and def->name[1] == 'u')
+		return std::string{'\'', x, '\''};
+	else
+		return std::to_string(x | (y << 8));
 }
 
 int main(int argc, char *argv[])
@@ -63,7 +67,7 @@ int main(int argc, char *argv[])
 			std::cout << ' ';
 			if (i + 1 == def.mem_arg) std::cout << '(';
 			if (not in.read(x, sizeof x)) return 2;
-			offset++, std::cout << reg(x[0], x[1]);
+			offset++, std::cout << reg(x[0], x[1], &def);
 			if (i + 1 == def.mem_arg) std::cout << ')';
 		}
 		// now parse and print the optional comments

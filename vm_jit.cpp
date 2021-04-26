@@ -480,13 +480,13 @@ try
 			{
 				const word a = memory[++i];
 				const word b = memory[++i];
-				readReg(0, a);
-				writeReg(b, 0);
+				readReg(0, b);
+				writeReg(a, 0);
 				break;
 			}
 		}
 	}
-	__builtin___clear_cache(code, (char*)code + CODE_SIZE_IN_BYTES);
+	__builtin___clear_cache(code, code_p);
 #if 0
 	{
 		std::ofstream machine_code_out("machine_code.bin", std::ios::binary);
