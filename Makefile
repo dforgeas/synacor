@@ -4,7 +4,7 @@ vm: vm.cpp
 	$(CXX) -O2 -o vm vm.cpp -Wall -std=c++17
 # TODO: turn on optimisations
 vm_jit: vm_jit.cpp
-	$(CXX) -O0 -g3 -o vm_jit vm_jit.cpp -Wall -std=c++17
+	$(CXX) -O0 -g -o vm_jit vm_jit.cpp -Wall -std=c++17
 dis: dis.cpp
 	$(CXX) -O2 -o dis dis.cpp -Wall -std=c++17
 ack: ack.cpp

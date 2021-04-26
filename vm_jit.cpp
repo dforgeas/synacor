@@ -8,8 +8,11 @@
 #include<sys/mman.h>
 typedef std::uint16_t word;
 constexpr word max = 0x7fff;
-static word memory[max+1];
-static word regs[8];
+extern "C"
+{
+word memory[max+1] = {};
+word regs[8] = {};
+}
 static struct wordStack: std::stack<word>
 {
 	using std::stack<word>::c; // the underlying container
@@ -114,6 +117,9 @@ static word nextProgramWord(word &pc)
 	return w;
 }
 
+extern "C"
+{ // put the interface with assembly here, to disable C++ complications if ever
+
 enum Errors
 {
 	// ARM immediate fields support one byte worth of non-zero bits
@@ -121,17 +127,16 @@ enum Errors
 	err_halt = 0xff00
 };
 
-
 // Do not let exceptions pass into our machine code.
 // Non-throwing functions are permitted to call potentially-throwing functions. Whenever an exception is thrown and the search for a handler encounters the outermost block of a non-throwing function, the function std::terminate [or std::unexpected (until C++17)] is called.
-extern "C" void putchar_impl(word w) noexcept
+void putchar_impl(word w) noexcept
 {
 	const auto c = static_cast<unsigned char>(w);
 	std::cout << c;
 	// don't flush here since cout will be flushed when cin reads
 }
 
-extern "C" word getchar_impl(word pc) noexcept
+word getchar_impl(word pc) noexcept
 {
 // pc can just be computed by the JIT compiler statically at the location of the i_in instruction most surely
 // that is to say the machine code doesn't need to track pc everywhere.
@@ -147,12 +152,12 @@ extern "C" word getchar_impl(word pc) noexcept
 	}
 }
 
-extern "C" void stack_push_impl(word w) noexcept
+void stack_push_impl(word w) noexcept
 {
 	stack.push(w);
 }
 
-extern "C" word stack_pop_impl(void) noexcept
+word stack_pop_impl(void) noexcept
 {
 	if (not stack.empty())
 	{
@@ -171,23 +176,7 @@ struct Callbacks;
 typedef int (*machine_code_ptr)(word *memory, word *regs, Callbacks *);
 static machine_code_ptr machine_code;
 
-static class WillUnmap
-{
-	void *ptr = 0;
-	std::size_t length;
-public:
-	~WillUnmap()
-	{
-		if (ptr) munmap(ptr, length);
-	}
-	void set(void *p, std::size_t len)
-	{
-		ptr = p;
-		length = len;
-	}
-} willUnmap;
-
-extern "C" void write_mem_impl(word addr, word value) noexcept
+void write_mem_impl(word addr, word value) noexcept
 {
 	writeWord(&memory[addr], value);
 	if (value < i_noop)
@@ -210,7 +199,25 @@ static struct Callbacks
 	write_mem_impl,
 };
 
-constexpr int INSTR_PER_WORD = 6; // a word is either an instruction or an argument, so instructions with arguments get more space
+} // extern "C"
+
+static class WillUnmap
+{
+	void *ptr = 0;
+	std::size_t length;
+public:
+	~WillUnmap()
+	{
+		if (ptr) munmap(ptr, length);
+	}
+	void set(void *p, std::size_t len)
+	{
+		ptr = p;
+		length = len;
+	}
+} willUnmap;
+
+constexpr int INSTR_PER_WORD = 4; // a word is either an instruction or an argument, so instructions with arguments get more space
 constexpr auto CODE_SIZE = (max+1) * INSTR_PER_WORD;
 constexpr auto CODE_SIZE_IN_BYTES = CODE_SIZE * sizeof(std::uint32_t);
 
@@ -222,43 +229,96 @@ namespace arm
 	{
 		if (val < 0 or val > 0xff)
 			throw "invalid value in movi";
-		return 0xe3a00000 | rd << 12 | val;
+		return 0xe3a0'0000 | rd << 12 | val;
 	}
-	constexpr instr movr(int rd, int rs) { return 0xe1a00000 | rd << 12 | rs; }
+	constexpr instr orri_hi(int rd, int val)
+	{
+		if (val < 0 or val > 0xff)
+			throw "invalid value in orri_hi";
+		return 0xe380'0c00 | rd << 12 | rd << 16 | val;
+	}
+	constexpr instr movr(int rd, int rs) { return 0xe1a0'0000 | rd << 12 | rs; }
 	constexpr instr nop() { return movr(0, 0); }
+	enum condition: instr
+	{
+		EQ, NE, HS, LO, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE, AL
+	};
+	static_assert(GT == 0b1100 and  AL == 0b1110);
+	enum operation: instr
+	{
+		AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC, TST, TEQ, CMP, CMN, ORR, MOV, BIC, MVN
+	};
+	static_assert(ADD == 0b0100 and CMP == 0b1010 and ORR == 0b1100 and MVN == 0b1111);
+	constexpr instr S = 1 << 20, I = 1 << 25;
+	constexpr instr lsl(int shift)
+	{
+		return shift << 7 | 0b000 << 4;
+	}
+	constexpr instr op(condition cond, operation oper, int rd, int rn, int rs)
+	{
+		return cond << 28 | oper << 21 | rn << 16 | rd << 12 | rs
+			| (oper >= TST and oper <= CMN) << 20; // force S for them
+	}
 	constexpr instr push(std::initializer_list<int> regs)
 	{
-		instr i = 0xe92d0000;
+		instr i = 0xe92d'0000;
 		for (int r: regs) i |= 1 << r;
 		return i;
 	}
 	constexpr instr pop(std::initializer_list<int> regs)
 	{
-		instr i = 0xe8bd0000;
+		instr i = 0xe8bd'0000;
 		for (int r: regs) i |= 1 << r;
 		return i;
 	}
-	constexpr instr ldr(int rd, int rbase, int off)
+	constexpr instr ldr(int rd, int rbase, int off_b)
 	{
-		instr i = 0xe5900000 | rbase << 16;
-		if (off < 0)
+		instr i = 0xe590'0000 | rbase << 16 | rd << 12;
+		if (off_b < 0)
 		{
 			i &= ~(1 << 23); // clear the 'up=add' bit to mean 'down=substract'
-			off = -off;
+			off_b = -off_b;
 		}
-		if (off >= 0x1000) // just 12 bits are available
-			throw "offset overflow in ldr";
-
-		return i | rd << 12 | off;
+		if (off_b >= 0x1000) // just 12 bits are available
+			throw "byte offset overflow in ldr";
+		return i | off_b;
 	}
-	constexpr instr ldrpc(int rd, int off)
+	constexpr instr ldrpc(int rd, int off_b)
 	{
-		return ldr(rd, pc, off - 8); // undo the pipeline delay on pc
+		return ldr(rd, pc, off_b - 8); // undo the pipeline delay on pc
 	}
-	constexpr instr blx(int rm) { return 0xe12fff30 | rm; }
+	constexpr instr ldrh(int rd, int rbase, int off_b)
+	{
+		// L=1, S=0, H=1, W=0, U=1
+		instr i = 0xe1d0'00b0 | rd << 12 | rbase << 16;
+		if (off_b < 0)
+		{
+			i &= ~(1 << 23); // clear the 'up=add' bit to mean 'down=substract'
+			off_b = -off_b;
+		}
+		if (off_b >= 0x100) // just 8 bits are available
+			throw "byte offset overflow in ldrh";
+		return i | (off_b & 0xf0) << 4 | (off_b & 0xf);
+	}
+	constexpr instr strh(int rd, int rbase, int off_b)
+	{
+		// L=0
+		const auto L = S;
+		return ldrh(rd, rbase, off_b) & ~L; // clear the L bit
+	}
+	constexpr instr blx(int rm) { return 0xe12f'ff30 | rm; }
+	constexpr instr bx(condition cond, int rm) { return 0x012f'ff10 | cond << 28 | rm; }
+	constexpr instr b(condition cond, int off_i)
+	{
+		off_i -= 2; // undo the pipeline delay on pc
+		if ((off_i & 0xff00'0000) != 0xff00'0000 and (off_i & 0xff00'0000) != 0)
+			throw "instruction offset overflow in branch";
+		return 0x0a00'0000 | cond << 28 | (off_i & 0xff'ffff);
+	}
 }
 
-static int run(word pc)
+static int run(word pc) noexcept
+try
 {
 	void *const code = mmap(0, CODE_SIZE_IN_BYTES,
 		PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -277,22 +337,75 @@ static int run(word pc)
 	for (int i = 0; i < CODE_SIZE; i++)
 		code_p[i] = nop;
 
-	if (memory[0] != i_noop)
+	if (memory[0] != i_noop or memory[1] != i_noop)
 	{
-		std::cerr << "Broken expectation: the memory doesn't start with a noop\n";
+		std::cerr << "Broken expectation: the memory doesn't start with 2 noops\n";
 		return -2;
 	}
-	// now we can write our function prologue in the place of the first noop
-	// function epilogue
+	// now we can write our function prologue in the place of the first and second noops
+	// 4, 5, 6 are the machine_code arguments: memory, regs, &callbacks
+	// 7 is the machine_code pointer
+	// 8 is max = 0x7fff
 	constexpr arm::instr push = arm::push({4, 5, 6, 7, 8, arm::lr});
 	*code_p++ = push;
+	const int rmemory = 0 + 4, rregs = 1 + 4, rcallbacks = 2 + 4, rmachine_code = 3 + 4, rmax = 4 + 4;
+	// get the machine_code pointer by pointing at the push instruction
+	constexpr arm::instr get_machine_code = arm::op(arm::AL, arm::SUB, rmachine_code, arm::pc, 8 + 4) | arm::I;
+	*code_p++ = get_machine_code;
 	// save the arguments in callee-saved registers
+	#if 0
 	for (int x: {0, 1, 2})
 	{
 		*code_p++ = arm::movr(x + 4, x);
 	}
-	constexpr int rcallbacks = 2 + 4;
+	#else // do it in 2 instructions but with the stack
+	constexpr arm::instr push_args = arm::push({0, 1, 2});
+	constexpr arm::instr pop_args = arm::pop({rmemory, rregs, rcallbacks});
+	*code_p++ = push_args;
+	*code_p++ = pop_args;
+	#endif
+	*code_p++ = arm::movi(rmax, 0xff);
+	*code_p++ = arm::orri_hi(rmax, 0x7f);
+
+	// function epilogue
 	constexpr arm::instr ret = arm::pop({4, 5, 6, 7, 8, arm::pc});
+
+	auto readReg = [&code_p](const int dst, const word src)
+	{
+		if (src > max)
+		{
+			*code_p++ = arm::ldrh(dst, rregs, (src - max - 1) * sizeof src);
+		}
+		else
+		{
+			*code_p++ = arm::movi(dst, src & 0xff);
+			const int high = src >> 8;
+			if (high) *code_p++ = arm::orri_hi(dst, high);
+		}
+	};
+	auto writeReg = [&code_p](const word dst, const int src)
+	{
+		if (dst > max)
+		{
+			*code_p++ = arm::strh(src, rregs, (dst - max - 1) * sizeof dst);
+		}
+	};
+	auto condJump = [&code_p, readReg](arm::condition cond, int extra, int pc, const word w)
+	{
+		if (w > max)
+		{
+			readReg(arm::ip, w);
+			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 16); // confirm lsl 4 works
+			constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, arm::ip, rmachine_code, arm::ip) | arm::lsl(4);
+			*code_p++ = a1;
+			*code_p++ = arm::bx(cond, arm::ip);
+		}
+		else
+		{
+			const int off_i = (w - pc) * INSTR_PER_WORD - extra;
+			*code_p++ = arm::b(cond, off_i);
+		}
+	};
 
 	for (int i = 0; i <= max; i++)
 	{
@@ -310,27 +423,76 @@ static int run(word pc)
 			case i_in: // 1 argument: code size is 2 * INSTR_PER_WORD
 			{
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, getchar));
-				constexpr arm::instr m1 = arm::movi(0, 0); // replace with actual program counter
-				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = l1;
-				*code_p++ = m1;
+				// pass the program counter as the argument (in order to savestate on EOF)
+				*code_p++ = arm::movi(0, i & 0xff);
+				const int high = i >> 8;
+				if (high) *code_p++ = arm::orri_hi(0, i >> 8);
+				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
 				break;
 			}
 			case i_out: // 1 argument: code size is 2 * INSTR_PER_WORD
 			{
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, putchar));
-				constexpr arm::instr m1 = arm::movi(0, '!'); // replace with readReg
-				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = l1;
 				const word w = memory[++i];
-				*code_p++ = arm::movi(0, static_cast<unsigned char>(w)); // replace with readReg
+				readReg(0, w);
+				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
+				break;
+			}
+			case i_jmp: // 1 argument: code size is 2 * INSTR_PER_WORD
+			{
+				const auto pc = i;
+				const word w = memory[++i];
+				const int extra = 0;
+				condJump(arm::AL, extra, pc, w);
+				break;
+			}
+			case i_jt: // 2 arguments: code size is 3 * INSTR_PER_WORD
+			{
+				const auto pc = i;
+				const word a = memory[++i];
+				const word b = memory[++i];
+				readReg(0, a);
+				// reuse the register encoding but actually make it read it as an immediate zero value:
+				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::I;
+				*code_p++ = c1;
+				const int extra = (a <= max) + 2;
+				condJump(arm::NE, extra, pc, b);
+				break;
+			}
+			case i_jf: // 2 arguments: code size is 3 * INSTR_PER_WORD
+			{
+				const auto pc = i;
+				const word a = memory[++i];
+				const word b = memory[++i];
+				readReg(0, a);
+				// reuse the register encoding but actually make it read it as an immediate zero value:
+				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::I;
+				*code_p++ = c1;
+				const int extra = (a <= max) + 2;
+				condJump(arm::EQ, extra, pc, b);
+				break;
+			}
+			case i_set: // 2 arguments: code size is 3 * INSTR_PER_WORD
+			{
+				const word a = memory[++i];
+				const word b = memory[++i];
+				readReg(0, a);
+				writeReg(b, 0);
 				break;
 			}
 		}
 	}
 	__builtin___clear_cache(code, (char*)code + CODE_SIZE_IN_BYTES);
+#if 0
+	{
+		std::ofstream machine_code_out("machine_code.bin", std::ios::binary);
+		machine_code_out.write((const char*)code, CODE_SIZE_IN_BYTES);
+	}
+#endif
 	return machine_code(memory, regs, &callbacks);
 #if 0
 #define NEXTWORD nextProgramWord(pc)
@@ -445,6 +607,11 @@ static int run(word pc)
 		}
 	}
 #endif
+}
+catch (const char *err)
+{
+	std::cerr << err << '\n';
+	return -2;
 }
 
 int main(int argc, char *argv[])
