@@ -41,8 +41,8 @@ static std::string reg(unsigned char x, unsigned char y, const i_def *def)
 		return '$' + std::to_string(x);
 	else if (def->name[0] == 'o' and def->name[1] == 'u')
 	{
-		if (x < ' ') return std::string{'^', x + '@'};
-		else if (x < 0x7f) return std::string{'\'', x, '\''};
+		if (x < ' ') return std::string{'^', static_cast<char>(x + '@')};
+		else if (x < 0x7f) return std::string{'\'', static_cast<char>(x), '\''};
 		else return std::to_string(x);
 	}
 	else

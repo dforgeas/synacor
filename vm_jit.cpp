@@ -18,28 +18,6 @@ static struct wordStack: std::stack<word>
 	using std::stack<word>::c; // the underlying container
 } stack;
 
-static word readWord(word const*const p)
-{
-	std::uint8_t const*const x = reinterpret_cast<std::uint8_t const*>(p);
-	return x[0] | (x[1] << 8);
-}
-static void writeWord(word *const p, const word w)
-{
-	std::uint8_t *const x = reinterpret_cast<std::uint8_t *>(p);
-	x[0] = w;
-	x[1] = w >> 8;
-}
-static word readReg(const word w)
-{
-	const word result = (w > max) ? regs[w - max - 1] : w;
-	return result;
-}
-static void writeReg(const word w, const word value)
-{
-	if (w > max) regs[w - max - 1] = value;
-	else return;
-}
-
 #define SAVESTATE_BIN "savestate.bin"
 
 static void saveState(const word pc)
@@ -111,12 +89,6 @@ enum instruction
 	i_noop
 };
 
-static word nextProgramWord(word &pc)
-{
-	const auto w = readWord(&memory[pc++ & max]);
-	return w;
-}
-
 extern "C"
 { // put the interface with assembly here, to disable C++ complications if ever
 
@@ -178,7 +150,7 @@ static machine_code_ptr machine_code;
 
 void write_mem_impl(word addr, word value) noexcept
 {
-	writeWord(&memory[addr], value);
+	memory[addr] = value;
 	if (value < i_noop)
 	{ // TODO: look up and compile the equivalent machine code
 	}
@@ -421,6 +393,13 @@ try
 		if (mask) *code_p++ = arm::op(arm::AL, arm::AND, 1, 1, rmax);
 		writeReg(a, 1);
 	};
+	auto haltIf_err_halt = [&code_p]()
+	{
+		constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::I;
+		*code_p++ = c1;
+		constexpr arm::instr r1 = (ret & 0xfff'ffff) | arm::EQ;
+		*code_p++ = r1;
+	};
 
 	for (int i = 2; i <= max; i++)
 	{
@@ -447,11 +426,7 @@ try
 				if (high) *code_p++ = arm::orri_hi(0, i >> 8);
 				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
-				// halt if err_halt was returned
-				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::I;
-				*code_p++ = c1;
-				constexpr arm::instr r1 = ret & 0xfff'ffff | arm::EQ;
-				*code_p++ = r1;
+				haltIf_err_halt();
 				break;
 			}
 			case i_out: // 1 argument: code size is 2 * INSTR_PER_WORD
@@ -562,15 +537,11 @@ try
 				*code_p++ = b1;
 				const word a = memory[++i];
 				writeReg(a, 0);
-				// halt if err_halt was returned
-				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::I;
-				*code_p++ = c1;
-				constexpr arm::instr r1 = ret & 0xfff'ffff | arm::EQ;
-				*code_p++ = r1;
+				haltIf_err_halt();
 				break;
 			}
 			default: // special halt
-				*code_p++ = arm::movi(0, 0xf7);`
+				*code_p++ = arm::movi(0, 0xf7);
 				*code_p++ = ret;
 				break;
 		}
