@@ -40,7 +40,11 @@ static std::string reg(unsigned char x, unsigned char y, const i_def *def)
 	if (0x80 & y)
 		return '$' + std::to_string(x);
 	else if (def->name[0] == 'o' and def->name[1] == 'u')
-		return std::string{'\'', x, '\''};
+	{
+		if (x < ' ') return std::string{'^', x + '@'};
+		else if (x < 0x7f) return std::string{'\'', x, '\''};
+		else return std::to_string(x);
+	}
 	else
 		return std::to_string(x | (y << 8));
 }

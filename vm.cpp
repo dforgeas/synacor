@@ -143,7 +143,7 @@ int run(word pc)
 		trace.open(TRACE_BIN, std::ios::binary);
 	}
 #define NEXTWORD nextProgramWord(pc)
-	auto ternary = [&pc] (auto&& oper) {
+	auto ternary = [&pc] (word oper(word, word)) {
 		const word a = NEXTWORD;
 		const word b = readReg(NEXTWORD);
 		const word c = readReg(NEXTWORD);
@@ -179,11 +179,11 @@ int run(word pc)
 			break;
 		case i_eq:
 			{
-				ternary([](word b, word c){ return b == c; });
+				ternary([](word b, word c)->word{ return b == c; });
 			} break;
 		case i_gt:
 			{
-				ternary([](word b, word c){ return b > c; });
+				ternary([](word b, word c)->word{ return b > c; });
 			} break;
 		case i_jmp:
 			{
@@ -204,23 +204,23 @@ int run(word pc)
 			} break;
 		case i_add:
 			{
-				ternary([](word b, word c){ return (b + c) & max; });
+				ternary([](word b, word c)->word{ return (b + c) & max; });
 			} break;
 		case i_mult:
 			{
-				ternary([](word b, word c){ return (b * c) & max; });
+				ternary([](word b, word c)->word{ return (b * c) & max; });
 			} break;
 		case i_mod:
 			{
-				ternary([](word b, word c){ return b % c; });
+				ternary([](word b, word c)->word{ return b % c; });
 			} break;
 		case i_and:
 			{
-				ternary([](word b, word c){ return b & c; });
+				ternary([](word b, word c)->word{ return b & c; });
 			} break;
 		case i_or:
 			{
-				ternary([](word b, word c){ return b | c; });
+				ternary([](word b, word c)->word{ return b | c; });
 			} break;
 		case i_not:
 			{

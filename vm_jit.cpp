@@ -259,6 +259,10 @@ namespace arm
 		return cond << 28 | oper << 21 | rn << 16 | rd << 12 | rs
 			| (oper >= TST and oper <= CMN) << 20; // force S for them
 	}
+	constexpr instr smulbb(int rd, int rs, int rm)
+	{
+		return 0xe160'0080 | rd << 16 | rs << 8 | rm;
+	}
 	constexpr instr push(std::initializer_list<int> regs)
 	{
 		instr i = 0xe92d'0000;
@@ -406,8 +410,19 @@ try
 			*code_p++ = arm::b(cond, off_i);
 		}
 	};
+	auto ternary = [&code_p, readReg, writeReg](int &i, arm::instr oper(int, int, int), bool mask)
+	{
+		const word a = memory[++i];
+		const word b = memory[++i];
+		const word c = memory[++i];
+		readReg(0, b);
+		readReg(1, c);
+		*code_p++ = oper(1, 0, 1);
+		if (mask) *code_p++ = arm::op(arm::AL, arm::AND, 1, 1, rmax);
+		writeReg(a, 1);
+	};
 
-	for (int i = 0; i <= max; i++)
+	for (int i = 2; i <= max; i++)
 	{
 		const word w = memory[i];
 		code_p = static_cast<arm::instr *>(code) + INSTR_PER_WORD * i;
@@ -420,6 +435,8 @@ try
 				*code_p++ = ret;
 				break;
 			}
+			case i_noop: // 0 arguments
+				break;
 			case i_in: // 1 argument: code size is 2 * INSTR_PER_WORD
 			{
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, getchar));
@@ -430,6 +447,11 @@ try
 				if (high) *code_p++ = arm::orri_hi(0, i >> 8);
 				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
+				// halt if err_halt was returned
+				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::I;
+				*code_p++ = c1;
+				constexpr arm::instr r1 = ret & 0xfff'ffff | arm::EQ;
+				*code_p++ = r1;
 				break;
 			}
 			case i_out: // 1 argument: code size is 2 * INSTR_PER_WORD
@@ -484,9 +506,76 @@ try
 				writeReg(a, 0);
 				break;
 			}
+			case i_add: // 3 arguments
+			case i_mult: // 3 arguments
+			case i_and: // 3 arguments
+			case i_or: // 3 arguments
+			{
+				switch (w)
+				{
+				case i_add: ternary(i, [](int a, int b, int c) {
+						return arm::op(arm::AL, arm::ADD, a, b, c);
+					}, true); break;
+				case i_and: ternary(i, [](int a, int b, int c) {
+						return arm::op(arm::AL, arm::AND, a, b, c);
+					}, false); break;
+				case i_or: ternary(i, [](int a, int b, int c) {
+						return arm::op(arm::AL, arm::ORR, a, b, c);
+					}, false); break;
+				case i_mult: ternary(i, [](int a, int b, int c) {
+						return arm::smulbb(a, b, c);
+					}, true); break;
+				}
+				break;
+			}
+			case i_eq: // 3 arguments
+			case i_gt: // 3 arguments
+			{
+				const word a = memory[++i];
+				const word b = memory[++i];
+				const word c = memory[++i];
+				readReg(0, b);
+				readReg(1, c);
+				*code_p++ = arm::op(arm::AL, arm::CMP, 0, 0, 1);
+				auto cond0 = arm::NE, cond1 = arm::EQ;
+				if (w == i_gt) cond0 = arm::LS, cond1 = arm::HI;
+				*code_p++ = arm::op(cond0, arm::MOV, 0, 0, 0) | arm::I;
+				*code_p++ = arm::op(cond1, arm::MOV, 0, 0, 1) | arm::I;
+				writeReg(a, 0);
+				break;
+			}
+			case i_push: // 1 argument
+			{
+				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_push));
+				*code_p++ = l1;
+				const word a = memory[++i];
+				readReg(0, a);
+				constexpr arm::instr b1 = arm::blx(arm::ip);
+				*code_p++ = b1;
+				break;
+			}
+			case i_pop: // 1 argument
+			{
+				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_pop));
+				*code_p++ = l1;
+				constexpr arm::instr b1 = arm::blx(arm::ip);
+				*code_p++ = b1;
+				const word a = memory[++i];
+				writeReg(a, 0);
+				// halt if err_halt was returned
+				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::I;
+				*code_p++ = c1;
+				constexpr arm::instr r1 = ret & 0xfff'ffff | arm::EQ;
+				*code_p++ = r1;
+				break;
+			}
+			default: // special halt
+				*code_p++ = arm::movi(0, 0xf7);`
+				*code_p++ = ret;
+				break;
 		}
 	}
-	__builtin___clear_cache(code, code_p);
+	__builtin___clear_cache(code, (char*)code + CODE_SIZE_IN_BYTES);
 #if 0
 	{
 		std::ofstream machine_code_out("machine_code.bin", std::ios::binary);
