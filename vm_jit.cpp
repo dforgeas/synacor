@@ -5,6 +5,8 @@
 #include<cstring>
 #include<cstddef>
 #include<stack>
+#include<forward_list>
+#include<cassert>
 #include<sys/mman.h>
 typedef std::uint16_t word;
 constexpr word max = 0x7fff;
@@ -119,7 +121,7 @@ word getchar_impl(word pc) noexcept
 	}
 	else // probably EOF
 	{
-		saveState(pc - 1); // restart i_in when loading state
+		saveState(pc); // restart i_in when loading state
 		return err_halt;
 	}
 }
@@ -140,8 +142,27 @@ word stack_pop_impl(void) noexcept
 	else
 	{
 		std::cerr << "Error: empty stack\n";
-		return err_halt; // do we return something else? like 0xf100
+		return err_halt;
 	}
+}
+
+word stack_pop_or_halt_impl(void) noexcept
+{
+	if (not stack.empty())
+	{
+		const word w = stack.top();
+		stack.pop();
+		return w;
+	}
+	else
+	{
+		std::exit(3);
+	}
+}
+
+word modulo_impl(word a, word b) noexcept
+{
+	return a % b;
 }
 
 struct Callbacks;
@@ -162,13 +183,17 @@ static struct Callbacks
 	word (*getchar)(word pc) noexcept;
 	void (*stack_push)(word) noexcept;
 	word (*stack_pop)(void) noexcept;
+	word (*stack_pop_or_halt)(void) noexcept;
 	void (*write_mem)(word addr, word value) noexcept;
+	word (*modulo)(word a, word b) noexcept;
 } callbacks = {
 	putchar_impl,
 	getchar_impl,
 	stack_push_impl,
 	stack_pop_impl,
+	stack_pop_or_halt_impl,
 	write_mem_impl,
+	modulo_impl,
 };
 
 } // extern "C"
@@ -221,7 +246,7 @@ namespace arm
 		AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC, TST, TEQ, CMP, CMN, ORR, MOV, BIC, MVN
 	};
 	static_assert(ADD == 0b0100 and CMP == 0b1010 and ORR == 0b1100 and MVN == 0b1111);
-	constexpr instr S = 1 << 20, I = 1 << 25;
+	constexpr instr S = 1 << 20, op_I = 1 << 25;
 	constexpr instr lsl(int shift)
 	{
 		return shift << 7 | 0b000 << 4;
@@ -282,6 +307,7 @@ namespace arm
 		const auto L = S;
 		return ldrh(rd, rbase, off_b) & ~L; // clear the L bit
 	}
+	constexpr instr ld_I = 1 << 22;
 	constexpr instr blx(int rm) { return 0xe12f'ff30 | rm; }
 	constexpr instr bx(condition cond, int rm) { return 0x012f'ff10 | cond << 28 | rm; }
 	constexpr instr b(condition cond, int off_i)
@@ -326,7 +352,7 @@ try
 	*code_p++ = push;
 	const int rmemory = 0 + 4, rregs = 1 + 4, rcallbacks = 2 + 4, rmachine_code = 3 + 4, rmax = 4 + 4;
 	// get the machine_code pointer by pointing at the push instruction
-	constexpr arm::instr get_machine_code = arm::op(arm::AL, arm::SUB, rmachine_code, arm::pc, 8 + 4) | arm::I;
+	constexpr arm::instr get_machine_code = arm::op(arm::AL, arm::SUB, rmachine_code, arm::pc, 8 + 4) | arm::op_I;
 	*code_p++ = get_machine_code;
 	// save the arguments in callee-saved registers
 	#if 0
@@ -372,8 +398,7 @@ try
 		{
 			readReg(arm::ip, w);
 			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 16); // confirm lsl 4 works
-			constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, arm::ip, rmachine_code, arm::ip) | arm::lsl(4);
-			*code_p++ = a1;
+			*code_p++ = arm::op(cond, arm::ADD, arm::ip, rmachine_code, arm::ip) | arm::lsl(4);
 			*code_p++ = arm::bx(cond, arm::ip);
 		}
 		else
@@ -382,20 +407,20 @@ try
 			*code_p++ = arm::b(cond, off_i);
 		}
 	};
-	auto ternary = [&code_p, readReg, writeReg](int &i, arm::instr oper(int, int, int), bool mask)
+	auto ternary = [&code_p, readReg, writeReg](int &i, std::forward_list<arm::instr> oper(int, int, int), bool mask)
 	{
 		const word a = memory[++i];
 		const word b = memory[++i];
 		const word c = memory[++i];
 		readReg(0, b);
 		readReg(1, c);
-		*code_p++ = oper(1, 0, 1);
-		if (mask) *code_p++ = arm::op(arm::AL, arm::AND, 1, 1, rmax);
-		writeReg(a, 1);
+		for (auto i: oper(0, 0, 1)) *code_p++ = i;
+		if (mask) *code_p++ = arm::op(arm::AL, arm::AND, 0, 0, rmax);
+		writeReg(a, 0);
 	};
 	auto haltIf_err_halt = [&code_p]()
 	{
-		constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::I;
+		constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::op_I;
 		*code_p++ = c1;
 		constexpr arm::instr r1 = (ret & 0xfff'ffff) | arm::EQ;
 		*code_p++ = r1;
@@ -405,12 +430,13 @@ try
 	{
 		const word w = memory[i];
 		code_p = static_cast<arm::instr *>(code) + INSTR_PER_WORD * i;
+		const auto code_p_begin = code_p;
 		switch (w)
 		{
 			case i_halt: // 0 arguments: code size is INSTR_PER_WORD
+			default: // special halt on invalid or unknown instruction
 			{
-				constexpr arm::instr m = arm::movi(0, 0); // r0 = 0
-				*code_p++ = m;
+				*code_p++ = arm::movi(0, w == i_halt ? 0 : 0xf7); // r0 = 0 or 0xf7
 				*code_p++ = ret;
 				break;
 			}
@@ -423,10 +449,11 @@ try
 				// pass the program counter as the argument (in order to savestate on EOF)
 				*code_p++ = arm::movi(0, i & 0xff);
 				const int high = i >> 8;
-				if (high) *code_p++ = arm::orri_hi(0, i >> 8);
+				if (high) *code_p++ = arm::orri_hi(0, high);
 				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
 				haltIf_err_halt();
+				writeReg(memory[++i], 0); // TODO: confirm
 				break;
 			}
 			case i_out: // 1 argument: code size is 2 * INSTR_PER_WORD
@@ -454,9 +481,9 @@ try
 				const word b = memory[++i];
 				readReg(0, a);
 				// reuse the register encoding but actually make it read it as an immediate zero value:
-				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::I;
+				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
 				*code_p++ = c1;
-				const int extra = (a <= max) + 2;
+				const int extra = code_p - code_p_begin;
 				condJump(arm::NE, extra, pc, b);
 				break;
 			}
@@ -467,9 +494,9 @@ try
 				const word b = memory[++i];
 				readReg(0, a);
 				// reuse the register encoding but actually make it read it as an immediate zero value:
-				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::I;
+				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
 				*code_p++ = c1;
-				const int extra = (a <= max) + 2;
+				const int extra = code_p - code_p_begin;
 				condJump(arm::EQ, extra, pc, b);
 				break;
 			}
@@ -485,21 +512,28 @@ try
 			case i_mult: // 3 arguments
 			case i_and: // 3 arguments
 			case i_or: // 3 arguments
+			case i_mod: // 3 arguments
 			{
+				typedef std::forward_list<arm::instr> li;
 				switch (w)
 				{
 				case i_add: ternary(i, [](int a, int b, int c) {
-						return arm::op(arm::AL, arm::ADD, a, b, c);
+						return li{arm::op(arm::AL, arm::ADD, a, b, c)};
 					}, true); break;
 				case i_and: ternary(i, [](int a, int b, int c) {
-						return arm::op(arm::AL, arm::AND, a, b, c);
+						return li{arm::op(arm::AL, arm::AND, a, b, c)};
 					}, false); break;
 				case i_or: ternary(i, [](int a, int b, int c) {
-						return arm::op(arm::AL, arm::ORR, a, b, c);
+						return li{arm::op(arm::AL, arm::ORR, a, b, c)};
 					}, false); break;
 				case i_mult: ternary(i, [](int a, int b, int c) {
-						return arm::smulbb(a, b, c);
+						return li{arm::smulbb(a, b, c)};
 					}, true); break;
+				case i_mod: ternary(i, [](int a, int b, int c) {
+						assert(a == 0); assert(b == 0); assert(c == 1);
+						return li{arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
+							arm::blx(arm::ip)};
+					}, false); break;
 				}
 				break;
 			}
@@ -514,8 +548,20 @@ try
 				*code_p++ = arm::op(arm::AL, arm::CMP, 0, 0, 1);
 				auto cond0 = arm::NE, cond1 = arm::EQ;
 				if (w == i_gt) cond0 = arm::LS, cond1 = arm::HI;
-				*code_p++ = arm::op(cond0, arm::MOV, 0, 0, 0) | arm::I;
-				*code_p++ = arm::op(cond1, arm::MOV, 0, 0, 1) | arm::I;
+				*code_p++ = arm::op(cond0, arm::MOV, 0, 0, 0) | arm::op_I;
+				*code_p++ = arm::op(cond1, arm::MOV, 0, 0, 1) | arm::op_I;
+				writeReg(a, 0);
+				break;
+			}
+			case i_not: // 2 arguments
+			{
+				const word a = memory[++i];
+				const word b = memory[++i];
+				readReg(0, b);
+				constexpr arm::instr mn = arm::op(arm::AL, arm::MVN, 0, 0, 0);
+				*code_p++ = mn;
+				constexpr arm::instr an = arm::op(arm::AL, arm::AND, 0, 0, rmax);
+				*code_p++ = an;
 				writeReg(a, 0);
 				break;
 			}
@@ -540,10 +586,58 @@ try
 				haltIf_err_halt();
 				break;
 			}
-			default: // special halt
-				*code_p++ = arm::movi(0, 0xf7);
-				*code_p++ = ret;
+			case i_call: // 1 argument
+			{
+				const auto pc = i, pc_next = i + 2;
+				*code_p++ = arm::movi(0, pc_next & 0xff);
+				const int high = pc_next >> 8;
+				if (high) *code_p++ = arm::orri_hi(0, high);
+				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_push));
+				*code_p++ = l1;
+				constexpr arm::instr b1 = arm::blx(arm::ip);
+				*code_p++ = b1;
+				const int extra = code_p - code_p_begin;
+				condJump(arm::AL, extra, pc, memory[++i]);
+				assert(code_p - code_p_begin <= 2 * INSTR_PER_WORD); // TODO: repeat everywhere before break
 				break;
+			}
+			case i_ret: // 0 arguments, code size is only INSTR_PER_WORD
+			{
+				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_pop_or_halt));
+				*code_p++ = l1;
+				constexpr arm::instr b1 = arm::blx(arm::ip); // this may call std::exit, i.e. halt if stack is empty
+				*code_p++ = b1;
+				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, arm::ip, rmachine_code, 0) | arm::lsl(4);
+				*code_p++ = a1;
+				constexpr arm::instr b2 = arm::bx(arm::AL, arm::ip);
+				*code_p++ = b2;
+				assert(code_p - code_p_begin <= 1 * INSTR_PER_WORD);
+				break;
+			}
+			case i_rmem: // 2 arguments
+			{
+				const word a = memory[++i];
+				const word b = memory[++i];
+				readReg(0, b);
+				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
+				*code_p++ = sh;
+				constexpr arm::instr ld = arm::ldrh(0, rmemory, 0) & ~arm::ld_I;
+				*code_p++ = ld;
+				writeReg(a, 0);
+				break;
+			}
+			case i_wmem: // 2 arguments
+			{
+				const word a = memory[++i];
+				const word b = memory[++i];
+				readReg(1, b);
+				readReg(0, a);
+				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
+				*code_p++ = sh;
+				constexpr arm::instr st = arm::strh(1, rmemory, 0) & ~arm::ld_I;
+				*code_p++ = st;
+				break;
+			}
 		}
 	}
 	__builtin___clear_cache(code, (char*)code + CODE_SIZE_IN_BYTES);
@@ -671,7 +765,7 @@ try
 catch (const char *err)
 {
 	std::cerr << err << '\n';
-	return -2;
+	return -3;
 }
 
 int main(int argc, char *argv[])
