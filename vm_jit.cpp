@@ -8,6 +8,8 @@
 #include<forward_list>
 #include<cassert>
 #include<sys/mman.h>
+#include<sys/auxv.h>
+#include<asm/hwcap.h>
 typedef std::uint16_t word;
 constexpr word max = 0x7fff;
 extern "C"
@@ -171,8 +173,8 @@ static machine_code_ptr machine_code;
 
 void write_mem_impl(word addr, word value) noexcept
 {
-	memory[addr] = value;
-	if (value < i_noop)
+	// memory[addr] = value; already done in machine code
+	if (value <= i_noop)
 	{ // TODO: look up and compile the equivalent machine code
 	}
 }
@@ -220,6 +222,15 @@ constexpr auto CODE_SIZE_IN_BYTES = CODE_SIZE * sizeof(std::uint32_t);
 
 namespace arm
 {
+	bool canArmv7 = false;
+	void detectCpu()
+	{
+		// We don't use Neon instructions, but this is a good
+		// indicator of Armv7 and above.
+		const long hwcaps = getauxval(AT_HWCAP);
+		canArmv7 = hwcaps & HWCAP_NEON;
+	}
+
 	typedef std::uint32_t instr;
 	constexpr int fp = 11, ip = 12, sp = 13, lr = 14, pc = 15; // TODO: make an enum
 	constexpr instr movi(int rd, int val) // TODO: rename to move and use the enum to overload
@@ -228,6 +239,7 @@ namespace arm
 			throw "invalid value in movi";
 		return 0xe3a0'0000 | rd << 12 | val;
 	}
+	// TODO: detect CPU and use newer movw instruction when available
 	constexpr instr orri_hi(int rd, int val)
 	{
 		if (val < 0 or val > 0xff)
@@ -236,6 +248,14 @@ namespace arm
 	}
 	constexpr instr movr(int rd, int rs) { return 0xe1a0'0000 | rd << 12 | rs; }
 	constexpr instr nop() { return movr(0, 0); }
+	instr movw(int rd, int val)
+	{
+		if (not canArmv7)
+			throw "CPU doesn't support movw";
+		if (val < 0 or val > 0xffff)
+			throw "invalid value in movw";
+		return 0xe300'0000 | rd << 12 | (val & 0xf000) << 4 | (val & 0xfff);
+	}
 	enum condition: instr
 	{
 		EQ, NE, HS, LO, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE, AL
@@ -319,60 +339,20 @@ namespace arm
 	}
 }
 
-static int run(word pc) noexcept
-try
+constexpr int rmemory = 0 + 4, rregs = 1 + 4, rcallbacks = 2 + 4, rmachine_code = 3 + 4, rmax = 4 + 4;
+// 4, 5, 6 are the machine_code arguments: memory, regs, &callbacks
+// 7 is the machine_code pointer
+// 8 is max = 0x7fff
+constexpr arm::instr push = arm::push({rmemory, rregs, rcallbacks, rmachine_code, rmax, arm::lr});
+
+// function epilogue
+constexpr arm::instr ret = arm::pop({rmemory, rregs, rcallbacks, rmachine_code, rmax, arm::pc});
+
+struct code_generator
 {
-	void *const code = mmap(0, CODE_SIZE_IN_BYTES,
-		PROT_READ | PROT_WRITE | PROT_EXEC,
-		MAP_PRIVATE | MAP_ANONYMOUS,
-		-1, 0);
-	if (code == MAP_FAILED)
-	{
-		std::cerr << "Failed allocating memory for machine code: " << std::strerror(errno) << '\n';
-		return -1;
-	}
-	willUnmap.set(code, CODE_SIZE_IN_BYTES);
-	machine_code = reinterpret_cast<machine_code_ptr>(code);
-
-	arm::instr *code_p = static_cast<arm::instr *>(code);
-	constexpr arm::instr nop = arm::nop();
-	for (int i = 0; i < CODE_SIZE; i++)
-		code_p[i] = nop;
-
-	if (memory[0] != i_noop or memory[1] != i_noop)
-	{
-		std::cerr << "Broken expectation: the memory doesn't start with 2 noops\n";
-		return -2;
-	}
-	// now we can write our function prologue in the place of the first and second noops
-	// 4, 5, 6 are the machine_code arguments: memory, regs, &callbacks
-	// 7 is the machine_code pointer
-	// 8 is max = 0x7fff
-	constexpr arm::instr push = arm::push({4, 5, 6, 7, 8, arm::lr});
-	*code_p++ = push;
-	const int rmemory = 0 + 4, rregs = 1 + 4, rcallbacks = 2 + 4, rmachine_code = 3 + 4, rmax = 4 + 4;
-	// get the machine_code pointer by pointing at the push instruction
-	constexpr arm::instr get_machine_code = arm::op(arm::AL, arm::SUB, rmachine_code, arm::pc, 8 + 4) | arm::op_I;
-	*code_p++ = get_machine_code;
-	// save the arguments in callee-saved registers
-	#if 0
-	for (int x: {0, 1, 2})
-	{
-		*code_p++ = arm::movr(x + 4, x);
-	}
-	#else // do it in 2 instructions but with the stack
-	constexpr arm::instr push_args = arm::push({0, 1, 2});
-	constexpr arm::instr pop_args = arm::pop({rmemory, rregs, rcallbacks});
-	*code_p++ = push_args;
-	*code_p++ = pop_args;
-	#endif
-	*code_p++ = arm::movi(rmax, 0xff);
-	*code_p++ = arm::orri_hi(rmax, 0x7f);
-
-	// function epilogue
-	constexpr arm::instr ret = arm::pop({4, 5, 6, 7, 8, arm::pc});
-
-	auto readReg = [&code_p](const int dst, const word src)
+	arm::instr * &code_p;
+	
+	void readReg(const int dst, const word src)
 	{
 		if (src > max)
 		{
@@ -384,15 +364,15 @@ try
 			const int high = src >> 8;
 			if (high) *code_p++ = arm::orri_hi(dst, high);
 		}
-	};
-	auto writeReg = [&code_p](const word dst, const int src)
+	}
+	void writeReg(const word dst, const int src)
 	{
 		if (dst > max)
 		{
 			*code_p++ = arm::strh(src, rregs, (dst - max - 1) * sizeof dst);
 		}
-	};
-	auto condJump = [&code_p, readReg](arm::condition cond, int extra, int pc, const word w)
+	}
+	void condJump(arm::condition cond, int extra, int pc, const word w)
 	{
 		if (w > max)
 		{
@@ -406,30 +386,29 @@ try
 			const int off_i = (w - pc) * INSTR_PER_WORD - extra;
 			*code_p++ = arm::b(cond, off_i);
 		}
-	};
-	auto ternary = [&code_p, readReg, writeReg](int &i, std::forward_list<arm::instr> oper(int, int, int), bool mask)
+	}
+	void ternary(int &i, std::forward_list<arm::instr> oper(int, int, int), bool mask)
 	{
 		const word a = memory[++i];
 		const word b = memory[++i];
 		const word c = memory[++i];
 		readReg(0, b);
 		readReg(1, c);
-		for (auto i: oper(0, 0, 1)) *code_p++ = i;
+		for (auto j: oper(0, 0, 1)) *code_p++ = j;
 		if (mask) *code_p++ = arm::op(arm::AL, arm::AND, 0, 0, rmax);
 		writeReg(a, 0);
-	};
-	auto haltIf_err_halt = [&code_p]()
+	}
+	void haltIf_err_halt()
 	{
 		constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, err_halt >> 8 | 0xc'00) | arm::op_I;
 		*code_p++ = c1;
 		constexpr arm::instr r1 = (ret & 0xfff'ffff) | arm::EQ;
 		*code_p++ = r1;
-	};
+	}
 
-	for (int i = 2; i <= max; i++)
+	void at(int &i)
 	{
 		const word w = memory[i];
-		code_p = static_cast<arm::instr *>(code) + INSTR_PER_WORD * i;
 		const auto code_p_begin = code_p;
 		switch (w)
 		{
@@ -441,6 +420,7 @@ try
 				break;
 			}
 			case i_noop: // 0 arguments
+				// TODO: fill block with nop to erase a previous instruction
 				break;
 			case i_in: // 1 argument: code size is 2 * INSTR_PER_WORD
 			{
@@ -531,6 +511,7 @@ try
 					}, true); break;
 				case i_mod: ternary(i, [](int a, int b, int c) {
 						assert(a == 0); assert(b == 0); assert(c == 1);
+						// TODO: detect the CPU and use the udiv instruction when possible
 						return li{arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
 							arm::blx(arm::ip)};
 					}, false); break;
@@ -621,9 +602,9 @@ try
 				readReg(0, b);
 				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
 				*code_p++ = sh;
-				constexpr arm::instr ld = arm::ldrh(0, rmemory, 0) & ~arm::ld_I;
+				constexpr arm::instr ld = arm::ldrh(1, rmemory, 0) & ~arm::ld_I;
 				*code_p++ = ld;
-				writeReg(a, 0);
+				writeReg(a, 1);
 				break;
 			}
 			case i_wmem: // 2 arguments
@@ -632,13 +613,70 @@ try
 				const word b = memory[++i];
 				readReg(1, b);
 				readReg(0, a);
-				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
+				constexpr arm::instr sh = arm::movr(2, 0) | arm::lsl(1);
 				*code_p++ = sh;
-				constexpr arm::instr st = arm::strh(1, rmemory, 0) & ~arm::ld_I;
+				constexpr arm::instr st = arm::strh(1, rmemory, 2) & ~arm::ld_I;
 				*code_p++ = st;
+				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, write_mem));
+				*code_p++ = l1;
+				constexpr arm::instr b1 = arm::blx(arm::ip);
+				*code_p++ = b1;
 				break;
 			}
 		}
+	}
+};
+
+static int run(word pc) noexcept
+try
+{
+	void *const code = mmap(0, CODE_SIZE_IN_BYTES,
+		PROT_READ | PROT_WRITE | PROT_EXEC,
+		MAP_PRIVATE | MAP_ANONYMOUS,
+		-1, 0);
+	if (code == MAP_FAILED)
+	{
+		std::cerr << "Failed allocating memory for machine code: " << std::strerror(errno) << '\n';
+		return -1;
+	}
+	willUnmap.set(code, CODE_SIZE_IN_BYTES);
+	machine_code = reinterpret_cast<machine_code_ptr>(code);
+
+	arm::instr *code_p = static_cast<arm::instr *>(code);
+	constexpr arm::instr nop = arm::nop();
+	for (int i = 0; i < CODE_SIZE; i++)
+		code_p[i] = nop;
+
+	if (memory[0] != i_noop or memory[1] != i_noop)
+	{
+		std::cerr << "Broken expectation: the memory doesn't start with 2 noops\n";
+		return -2;
+	}
+	// now we can write our function prologue in the place of the first and second noops
+	*code_p++ = push;
+	// get the machine_code pointer by pointing at the push instruction
+	constexpr arm::instr get_machine_code = arm::op(arm::AL, arm::SUB, rmachine_code, arm::pc, 8 + 4) | arm::op_I;
+	*code_p++ = get_machine_code;
+	// save the arguments in callee-saved registers
+	#if 0
+	for (int x: {0, 1, 2})
+	{
+		*code_p++ = arm::movr(x + 4, x);
+	}
+	#else // do it in 2 instructions but with the stack
+	constexpr arm::instr push_args = arm::push({0, 1, 2});
+	constexpr arm::instr pop_args = arm::pop({rmemory, rregs, rcallbacks});
+	*code_p++ = push_args;
+	*code_p++ = pop_args;
+	#endif
+	*code_p++ = arm::movi(rmax, 0xff);
+	*code_p++ = arm::orri_hi(rmax, 0x7f);
+
+	for (int i = 2; i <= max; i++)
+	{
+		code_p = static_cast<arm::instr *>(code) + INSTR_PER_WORD * i;
+		code_generator code_gen{code_p};
+		code_gen.at(i);
 	}
 	__builtin___clear_cache(code, (char*)code + CODE_SIZE_IN_BYTES);
 #if 0
@@ -771,6 +809,8 @@ catch (const char *err)
 int main(int argc, char *argv[])
 {
 	std::ios::sync_with_stdio(false);
+	arm::detectCpu();
+
 	word pc = 0;
 	if (argc < 2)
 	{
