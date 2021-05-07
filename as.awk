@@ -5,6 +5,13 @@ BEGIN {
 	code[code_i++] = 21 # noop
 }
 
+{
+	if (code_i > 32767) {
+		printf("Too many instructions from line %d: %s\n", NR, $0) > "/dev/stderr"
+		exit 1
+	}
+}
+
 # ================
 /^[ \t]*halt/ {
 	code[code_i++] = 0
@@ -35,17 +42,17 @@ BEGIN {
 	process_args()
 	next
 }
-/^[ \t]*jmp[ \t]+\$?[0-9]+/ {
+/^[ \t]*jmp[ \t]+[A-Za-z0-9_]+/ {
 	code[code_i++] = 6
 	process_jump(0)
 	next
 }
-/^[ \t]*jt[ \t]+\$?[0-9]+[ \t]+\$?[0-9]+/ {
+/^[ \t]*jt[ \t]+\$?[0-9]+[ \t]+[A-Za-z0-9_]+/ {
 	code[code_i++] = 7
 	process_jump(1)
 	next
 }
-/^[ \t]*jf[ \t]+\$?[0-9]+[ \t]+\$?[0-9]+/ {
+/^[ \t]*jf[ \t]+\$?[0-9]+[ \t]+[A-Za-z0-9_]+/ {
 	code[code_i++] = 8
 	process_jump(1)
 	next
@@ -115,34 +122,52 @@ BEGIN {
 }
 # ================
 
+/^[ \t]*[A-Za-z0-9_]+:/ { # a label
+	split($1, labels, /:/)
+	jump_map[labels[1]] = code_i
+	next
+}
+
+/^[ \t]*$/ {
+	# skip empty lines
+}
+
+# anything else
+{
+	printf("Invalid syntax line %d: %s\n", NR, $0) > "/dev/stderr"
+	exit 1
+}
+
 function process_args(      n, arg) {
 	for (n=2; n<=NF; n++) {
 		arg = $n
 		if (arg ~ /^\(.*\)$/) { arg = substr(arg, 2, length(arg) - 2) }
-		if (arg ~ /^\$/) { code[code_i++] = 2^15 + substr(arg, 2) }
-		else { code[code_i++] = arg }
+		process_reg(arg)
 	}
 }
 
 function process_jump(extra_arg_count,      n, arg) {
 	for (n = 2; n < 2 + extra_arg_count; n++) {
 		arg = $n
-		if (arg ~ /^\$/) { code[code_i++] = 2^15 + substr(arg, 2) }
-		else { code[code_i++] = arg }
+		process_reg(arg)
 	}
 	jumps[++jump_i] = code_i
 	code[code_i++] = $n # the label itself for now
 }
 
-/^[ \t]+[A-Za-z0-9_]+:/ { # a label
-	split($1, labels, /:/)
-	jump_map[labels[1]] = code_i
-	next
-}
-
-# anything else
-{
-	printf("Invalid syntax line %d: %s\n", NR, $0) > "/dev/stderr"
+function process_reg(arg) {
+	if (arg ~ /^\$/) {
+		arg = substr(arg, 2)
+		if (arg > 7) {
+			printf("Invalid register line %d: %s\n", NR, arg) > "/dev/stderr"
+		}
+		code[code_i++] = 2^15 + arg
+	} else {
+		if (arg > 32767) {
+			printf("Invalid value line %d: %s\n", NR, arg) > "/dev/stderr"
+		}
+		code[code_i++] = arg
+	}
 }
 
 END {

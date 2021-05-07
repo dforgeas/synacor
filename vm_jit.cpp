@@ -615,6 +615,7 @@ struct code_generator
 		assert((code_p_end - code_p_begin) % INSTR_PER_WORD == 0);
 		// write a few arm::nop() to fill until the next instruction
 		while (code_p < code_p_end) *code_p++ = arm::nop();
+		// TODO: if there's more than a few nops, write an AL branch to the next block
 	}
 };
 
