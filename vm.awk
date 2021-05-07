@@ -24,7 +24,7 @@ BEGIN {
 		program = "od --endian=little -dv challenge.bin"
 		j = 0
 		while ((program | getline) > 0) {
-			for (i = 2; i < NF; i++) mem[j++] = $i + 0
+			for (i = 2; i <= NF; i++) mem[j++] = $i + 0
 		}
 		close(program)
 		pc = 0
@@ -164,6 +164,9 @@ function savestate(pc,     i, file) {
 }
 
 function loadstate(     i, file) {
+	file = "savestate.txt.bz2"
+	if ((getline < file) <= 0) { return 0 } # cannot read file
+	else close(file) # can read: close and load
 	file = "bzip2 -dc < savestate.txt.bz2"
 	if ((file | getline) <= 0) { return 0 } # cannot read file
 	else close(file) # can read: close and load

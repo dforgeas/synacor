@@ -6,6 +6,7 @@
 #include<cstddef>
 #include<stack>
 #include<forward_list>
+#include<vector>
 #include<cassert>
 #include<sys/mman.h>
 #include<sys/auxv.h>
@@ -22,6 +23,9 @@ static struct wordStack: std::stack<word>
 	using std::stack<word>::c; // the underlying container
 } stack;
 
+// to check that jump targets point to correctly compiled instructions
+std::vector<bool> instruction_start(max + 1);
+	
 #define SAVESTATE_BIN "savestate.bin"
 
 static void saveState(const word pc)
@@ -171,13 +175,7 @@ struct Callbacks;
 typedef int (*machine_code_ptr)(word *memory, word *regs, Callbacks *);
 static machine_code_ptr machine_code;
 
-void write_mem_impl(word addr, word value) noexcept
-{
-	// memory[addr] = value; already done in machine code
-	if (value <= i_noop)
-	{ // TODO: look up and compile the equivalent machine code
-	}
-}
+void write_mem_impl(word addr, word value) noexcept;
 
 static struct Callbacks
 {
@@ -216,7 +214,7 @@ public:
 	}
 } willUnmap;
 
-constexpr int INSTR_PER_WORD = 4; // a word is either an instruction or an argument, so instructions with arguments get more space
+constexpr int INSTR_PER_WORD = 8; // a word is either an instruction or an argument, so instructions with arguments get more space
 constexpr auto CODE_SIZE = (max+1) * INSTR_PER_WORD;
 constexpr auto CODE_SIZE_IN_BYTES = CODE_SIZE * sizeof(std::uint32_t);
 
@@ -325,7 +323,7 @@ namespace arm
 	{
 		// L=0
 		const auto L = S;
-		return ldrh(rd, rbase, off_b) & ~L; // clear the L bit
+		return ldrh(rd, rbase, off_b) ^ L; // clear the L bit
 	}
 	constexpr instr ld_I = 1 << 22;
 	constexpr instr blx(int rm) { return 0xe12f'ff30 | rm; }
@@ -351,7 +349,7 @@ constexpr arm::instr ret = arm::pop({rmemory, rregs, rcallbacks, rmachine_code, 
 struct code_generator
 {
 	arm::instr * &code_p;
-	
+
 	void readReg(const int dst, const word src)
 	{
 		if (src > max)
@@ -377,8 +375,8 @@ struct code_generator
 		if (w > max)
 		{
 			readReg(arm::ip, w);
-			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 16); // confirm lsl 4 works
-			*code_p++ = arm::op(cond, arm::ADD, arm::ip, rmachine_code, arm::ip) | arm::lsl(4);
+			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 0x20); // confirm lsl 5 works
+			*code_p++ = arm::op(cond, arm::ADD, arm::ip, rmachine_code, arm::ip) | arm::lsl(5);
 			*code_p++ = arm::bx(cond, arm::ip);
 		}
 		else
@@ -408,6 +406,8 @@ struct code_generator
 
 	void at(int &i)
 	{
+		const auto i_begin = i;
+		instruction_start[i] = true;
 		const word w = memory[i];
 		const auto code_p_begin = code_p;
 		switch (w)
@@ -420,7 +420,6 @@ struct code_generator
 				break;
 			}
 			case i_noop: // 0 arguments
-				// TODO: fill block with nop to erase a previous instruction
 				break;
 			case i_in: // 1 argument: code size is 2 * INSTR_PER_WORD
 			{
@@ -433,7 +432,7 @@ struct code_generator
 				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
 				haltIf_err_halt();
-				writeReg(memory[++i], 0); // TODO: confirm
+				writeReg(memory[++i], 0);
 				break;
 			}
 			case i_out: // 1 argument: code size is 2 * INSTR_PER_WORD
@@ -455,6 +454,7 @@ struct code_generator
 				break;
 			}
 			case i_jt: // 2 arguments: code size is 3 * INSTR_PER_WORD
+			case i_jf: // 2 arguments
 			{
 				const auto pc = i;
 				const word a = memory[++i];
@@ -464,23 +464,10 @@ struct code_generator
 				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
 				*code_p++ = c1;
 				const int extra = code_p - code_p_begin;
-				condJump(arm::NE, extra, pc, b);
+				condJump(w == i_jf ? arm::EQ : arm::NE, extra, pc, b);
 				break;
 			}
-			case i_jf: // 2 arguments: code size is 3 * INSTR_PER_WORD
-			{
-				const auto pc = i;
-				const word a = memory[++i];
-				const word b = memory[++i];
-				readReg(0, a);
-				// reuse the register encoding but actually make it read it as an immediate zero value:
-				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
-				*code_p++ = c1;
-				const int extra = code_p - code_p_begin;
-				condJump(arm::EQ, extra, pc, b);
-				break;
-			}
-			case i_set: // 2 arguments: code size is 3 * INSTR_PER_WORD
+			case i_set: // 2 arguments
 			{
 				const word a = memory[++i];
 				const word b = memory[++i];
@@ -488,7 +475,7 @@ struct code_generator
 				writeReg(a, 0);
 				break;
 			}
-			case i_add: // 3 arguments
+			case i_add: // 3 arguments: code size is 4 * INSTR_PER_WORD
 			case i_mult: // 3 arguments
 			case i_and: // 3 arguments
 			case i_or: // 3 arguments
@@ -579,7 +566,6 @@ struct code_generator
 				*code_p++ = b1;
 				const int extra = code_p - code_p_begin;
 				condJump(arm::AL, extra, pc, memory[++i]);
-				assert(code_p - code_p_begin <= 2 * INSTR_PER_WORD); // TODO: repeat everywhere before break
 				break;
 			}
 			case i_ret: // 0 arguments, code size is only INSTR_PER_WORD
@@ -588,11 +574,11 @@ struct code_generator
 				*code_p++ = l1;
 				constexpr arm::instr b1 = arm::blx(arm::ip); // this may call std::exit, i.e. halt if stack is empty
 				*code_p++ = b1;
-				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, arm::ip, rmachine_code, 0) | arm::lsl(4);
+				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 0x20); // confirm lsl 5 works
+				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, arm::ip, rmachine_code, 0) | arm::lsl(5);
 				*code_p++ = a1;
 				constexpr arm::instr b2 = arm::bx(arm::AL, arm::ip);
 				*code_p++ = b2;
-				assert(code_p - code_p_begin <= 1 * INSTR_PER_WORD);
 				break;
 			}
 			case i_rmem: // 2 arguments
@@ -602,7 +588,7 @@ struct code_generator
 				readReg(0, b);
 				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
 				*code_p++ = sh;
-				constexpr arm::instr ld = arm::ldrh(1, rmemory, 0) & ~arm::ld_I;
+				constexpr arm::instr ld = arm::ldrh(1, rmemory, 0) ^ arm::ld_I;
 				*code_p++ = ld;
 				writeReg(a, 1);
 				break;
@@ -615,7 +601,7 @@ struct code_generator
 				readReg(0, a);
 				constexpr arm::instr sh = arm::movr(2, 0) | arm::lsl(1);
 				*code_p++ = sh;
-				constexpr arm::instr st = arm::strh(1, rmemory, 2) & ~arm::ld_I;
+				constexpr arm::instr st = arm::strh(1, rmemory, 2) ^ arm::ld_I;
 				*code_p++ = st;
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, write_mem));
 				*code_p++ = l1;
@@ -624,8 +610,21 @@ struct code_generator
 				break;
 			}
 		}
+		const auto code_p_end = code_p_begin + (i + 1 - i_begin) * INSTR_PER_WORD;
+		assert(code_p <= code_p_end);
+		assert((code_p_end - code_p_begin) % INSTR_PER_WORD == 0);
+		// write a few arm::nop() to fill until the next instruction
+		while (code_p < code_p_end) *code_p++ = arm::nop();
 	}
 };
+
+void write_mem_impl(word addr, word value) noexcept
+{
+	// memory[addr] = value; already done in machine code
+	if (value <= i_noop)
+	{ // TODO: look up and compile the equivalent machine code
+	}
+}
 
 static int run(word pc) noexcept
 try
@@ -643,9 +642,7 @@ try
 	machine_code = reinterpret_cast<machine_code_ptr>(code);
 
 	arm::instr *code_p = static_cast<arm::instr *>(code);
-	constexpr arm::instr nop = arm::nop();
-	for (int i = 0; i < CODE_SIZE; i++)
-		code_p[i] = nop;
+	const auto code_p_begin = code_p;
 
 	if (memory[0] != i_noop or memory[1] != i_noop)
 	{
@@ -671,6 +668,8 @@ try
 	#endif
 	*code_p++ = arm::movi(rmax, 0xff);
 	*code_p++ = arm::orri_hi(rmax, 0x7f);
+	// write a few arm::nop() too fill until the next instruction
+	while (code_p < code_p_begin + 2 * INSTR_PER_WORD) *code_p++ = arm::nop();
 
 	for (int i = 2; i <= max; i++)
 	{
@@ -686,119 +685,6 @@ try
 	}
 #endif
 	return machine_code(memory, regs, &callbacks);
-#if 0
-#define NEXTWORD nextProgramWord(pc)
-	auto ternary = [&pc] (auto&& oper) {
-		const word a = NEXTWORD;
-		const word b = readReg(NEXTWORD);
-		const word c = readReg(NEXTWORD);
-		writeReg(a, oper(b, c));
-	};
-	for ( ;; )
-	{
-		switch (NEXTWORD)
-		{
-		case i_halt:
-			
-			break;
-		case i_set:
-			{
-				const word a = NEXTWORD;
-				const word b = NEXTWORD;
-				writeReg(a, readReg(b));
-			} break;
-		case i_push:
-			break;
-		case i_pop:
-			break;
-		case i_eq:
-			{
-				ternary([](word b, word c){ return b == c; });
-			} break;
-		case i_gt:
-			{
-				ternary([](word b, word c){ return b > c; });
-			} break;
-		case i_jmp:
-			{
-				const word a = readReg(NEXTWORD);
-				pc = a;
-			} break;
-		case i_jt:
-			{
-				const word a = readReg(NEXTWORD);
-				const word b = readReg(NEXTWORD);
-				if (a != 0) pc = b;
-			} break;
-		case i_jf:
-			{
-				const word a = readReg(NEXTWORD);
-				const word b = readReg(NEXTWORD);
-				if (a == 0) pc = b;
-			} break;
-		case i_add:
-			{
-				ternary([](word b, word c){ return (b + c) & max; });
-			} break;
-		case i_mult:
-			{
-				ternary([](word b, word c){ return (b * c) & max; });
-			} break;
-		case i_mod:
-			{
-				ternary([](word b, word c){ return b % c; });
-			} break;
-		case i_and:
-			{
-				ternary([](word b, word c){ return b & c; });
-			} break;
-		case i_or:
-			{
-				ternary([](word b, word c){ return b | c; });
-			} break;
-		case i_not:
-			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				writeReg(a, (~b) & max);
-			} break;
-		case i_rmem:
-			{
-				const word a = NEXTWORD;
-				const word b = readReg(NEXTWORD);
-				writeReg(a, readWord(&memory[b & max]));
-			} break;
-		case i_wmem:
-			{
-			} break;
-		case i_call:
-			{
-				const word a = readReg(NEXTWORD);
-				stack.push(pc);
-				pc = a;
-			} break;
-		case i_ret:
-			if (not stack.empty())
-			{
-				pc = stack.top();
-				stack.pop();
-			}
-			else
-			{
-				return 0; // halt
-			}
-			break;
-		case i_out:
-			{
-			} break;
-		case i_in:
-			{
-			} break;
-		case i_noop:
-			break;
-		}
-	}
-#endif
 }
 catch (const char *err)
 {
