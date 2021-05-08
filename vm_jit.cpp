@@ -118,7 +118,7 @@ void putchar_impl(word w) noexcept
 
 word getchar_impl(word pc) noexcept
 {
-// pc can just be computed by the JIT compiler statically at the location of the i_in instruction most surely
+// pc can just be computed by the JIT compiler statically at the location of the i_in instruction
 // that is to say the machine code doesn't need to track pc everywhere.
 	char c;
 	if (std::cin.get(c)) // input was ok
@@ -171,6 +171,16 @@ word modulo_impl(word a, word b) noexcept
 	return a % b;
 }
 
+word check_jump_target_impl(word w) noexcept
+{
+	if (not instruction_start.at(w))
+	{
+		std::cerr << "Error: jump to non-instruction at " << w << '\n';
+		std::exit(4);
+	}
+	return w; // leave the address in r0 for the caller
+}
+
 struct Callbacks;
 typedef int (*machine_code_ptr)(word *memory, word *regs, Callbacks *);
 static machine_code_ptr machine_code;
@@ -186,6 +196,7 @@ static struct Callbacks
 	word (*stack_pop_or_halt)(void) noexcept;
 	void (*write_mem)(word addr, word value) noexcept;
 	word (*modulo)(word a, word b) noexcept;
+	word (*check_jump_target)(word w) noexcept;
 } callbacks = {
 	putchar_impl,
 	getchar_impl,
@@ -194,6 +205,7 @@ static struct Callbacks
 	stack_pop_or_halt_impl,
 	write_mem_impl,
 	modulo_impl,
+	check_jump_target_impl,
 };
 
 } // extern "C"
@@ -370,14 +382,19 @@ struct code_generator
 			*code_p++ = arm::strh(src, rregs, (dst - max - 1) * sizeof dst);
 		}
 	}
-	void condJump(arm::condition cond, int extra, int pc, const word w)
+	void condJump(arm::condition cond, const int extra, const word pc, const word w)
 	{
 		if (w > max)
 		{
-			readReg(arm::ip, w);
-			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 0x20); // confirm lsl 5 works
-			*code_p++ = arm::op(cond, arm::ADD, arm::ip, rmachine_code, arm::ip) | arm::lsl(5);
-			*code_p++ = arm::bx(cond, arm::ip);
+			// use register 0 so that it's the argument and result of check_jump_target
+			readReg(0, w);
+			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
+			constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
+			*code_p++ = l1;
+			constexpr arm::instr b1 = arm::blx(arm::ip);
+			*code_p++ = b1;
+			*code_p++ = arm::op(cond, arm::ADD, 0, rmachine_code, 0) | arm::lsl(5);
+			*code_p++ = arm::bx(cond, 0);
 		}
 		else
 		{
@@ -385,7 +402,7 @@ struct code_generator
 			*code_p++ = arm::b(cond, off_i);
 		}
 	}
-	void ternary(int &i, std::forward_list<arm::instr> oper(int, int, int), bool mask)
+	void ternary(word &i, std::forward_list<arm::instr> oper(int, int, int), bool mask)
 	{
 		const word a = memory[++i];
 		const word b = memory[++i];
@@ -404,10 +421,9 @@ struct code_generator
 		*code_p++ = r1;
 	}
 
-	void at(int &i)
+	void at(word &i)
 	{
 		const auto i_begin = i;
-		instruction_start[i] = true;
 		const word w = memory[i];
 		const auto code_p_begin = code_p;
 		switch (w)
@@ -556,7 +572,7 @@ struct code_generator
 			}
 			case i_call: // 1 argument
 			{
-				const auto pc = i, pc_next = i + 2;
+				const word pc = i, pc_next = i + 2;
 				*code_p++ = arm::movi(0, pc_next & 0xff);
 				const int high = pc_next >> 8;
 				if (high) *code_p++ = arm::orri_hi(0, high);
@@ -574,11 +590,14 @@ struct code_generator
 				*code_p++ = l1;
 				constexpr arm::instr b1 = arm::blx(arm::ip); // this may call std::exit, i.e. halt if stack is empty
 				*code_p++ = b1;
-				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 0x20); // confirm lsl 5 works
-				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, arm::ip, rmachine_code, 0) | arm::lsl(5);
+				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
+				constexpr arm::instr l2 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
+				*code_p++ = l2;
+				*code_p++ = b1; // this may call std::exit, it returns its argument (i.e. r0 is unchanged)
+				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, 0, rmachine_code, 0) | arm::lsl(5);
 				*code_p++ = a1;
-				constexpr arm::instr b2 = arm::bx(arm::AL, arm::ip);
-				*code_p++ = b2;
+				constexpr arm::instr b3 = arm::bx(arm::AL, 0);
+				*code_p++ = b3;
 				break;
 			}
 			case i_rmem: // 2 arguments
@@ -610,6 +629,8 @@ struct code_generator
 				break;
 			}
 		}
+		instruction_start[i_begin] = true;
+		for (auto j = i_begin + 1; j <= i; ++j) instruction_start[j] = false;
 		const auto code_p_end = code_p_begin + (i + 1 - i_begin) * INSTR_PER_WORD;
 		assert(code_p <= code_p_end);
 		assert((code_p_end - code_p_begin) % INSTR_PER_WORD == 0);
@@ -623,7 +644,11 @@ void write_mem_impl(word addr, word value) noexcept
 {
 	// memory[addr] = value; already done in machine code
 	if (value <= i_noop)
-	{ // TODO: look up and compile the equivalent machine code
+	{ // look up and compile the equivalent machine code
+		auto code_p = reinterpret_cast<arm::instr *>(machine_code) + INSTR_PER_WORD * addr;
+		const auto code_p_begin = code_p;
+		code_generator{code_p}.at(addr);
+		__builtin___clear_cache(code_p_begin, code_p);
 	}
 }
 
@@ -669,10 +694,12 @@ try
 	#endif
 	*code_p++ = arm::movi(rmax, 0xff);
 	*code_p++ = arm::orri_hi(rmax, 0x7f);
-	// write a few arm::nop() too fill until the next instruction
+	// jump to the right instruction according to pc (loaded from the saved state)
+	code_generator{code_p}.condJump(arm::AL, code_p - code_p_begin, 0, pc < 2 ? 2 : pc);
+	// write a few arm::nop() to fill until the next instruction
 	while (code_p < code_p_begin + 2 * INSTR_PER_WORD) *code_p++ = arm::nop();
 
-	for (int i = 2; i <= max; i++)
+	for (word i = 2; i <= max; ++i)
 	{
 		code_p = static_cast<arm::instr *>(code) + INSTR_PER_WORD * i;
 		code_generator code_gen{code_p};
