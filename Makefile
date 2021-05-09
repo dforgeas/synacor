@@ -8,7 +8,7 @@ vm_jit: vm_jit.cpp
 dis: dis.cpp
 	$(CXX) -O2 -o dis dis.cpp -Wall -std=c++17
 ack: ack.cpp
-	$(CXX) -O2 -o ack ack.cpp -Wall -std=c++17 -Wl,--stack,$$(( 1 << 23 ))
+	$(CXX) -O2 -o ack ack.cpp -Wall -std=c++17
 RUST=rustc
 RUST_FLAGS=--edition 2018 -O -C lto=yes
 rvm: rvm.rs

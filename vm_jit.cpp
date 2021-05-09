@@ -635,8 +635,12 @@ struct code_generator
 		assert(code_p <= code_p_end);
 		assert((code_p_end - code_p_begin) % INSTR_PER_WORD == 0);
 		// write a few arm::nop() to fill until the next instruction
+		// if there's more than a few nops, write an AL branch to the next block
+		if (code_p_end - code_p >= 2)
+		{
+			condJump(arm::AL, code_p - code_p_begin, i_begin, i + 1);
+		}
 		while (code_p < code_p_end) *code_p++ = arm::nop();
-		// TODO: if there's more than a few nops, write an AL branch to the next block
 	}
 };
 
@@ -649,6 +653,26 @@ void write_mem_impl(word addr, word value) noexcept
 		const auto code_p_begin = code_p;
 		code_generator{code_p}.at(addr);
 		__builtin___clear_cache(code_p_begin, code_p);
+	}
+	// else: check if we are in the args of a instruction and recompile it?
+	// or perhaps just abort if this happens, perhaps it never happens?
+	else
+	{
+		const std::initializer_list<signed char> n_args{
+			0, 2, 1, 1, 3, 3, 1, 2, 2, 3, 3, 3, 3, 3, 2, 2, 2, 1, 0, 1, 1, 0,
+		};
+		for (int dist = 1; dist <= 3; ++dist)
+		{
+			const auto w = memory[addr - dist];
+			if (w <= i_noop and dist <= n_args.begin()[w])
+			{ // found an instruction in range
+
+				auto code_p = reinterpret_cast<arm::instr *>(machine_code) + INSTR_PER_WORD * (addr - dist);
+				const auto code_p_begin = code_p;
+				code_generator{code_p}.at(addr);
+				__builtin___clear_cache(code_p_begin, code_p);
+			}
+		}
 	}
 }
 
