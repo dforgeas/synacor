@@ -38,11 +38,11 @@ for (idx, (name, n_args, mem_arg)) in enumerate(instructions):
         (r'/^[ \t]*%s%s/ {' '\n') % (name, ''.join(
             r'[ \t]+%s%s%s' %
             (r'\('[0:2*(i==mem_arg-1)],
-             ('[A-Za-z0-9_]+' if i==n_args-1 and name[0]=='j' else r'\$?[0-9]+'),
+             ('[A-Za-z0-9_]+' if i==n_args-1 and (name[0]=='j' or name=='call') else r'\$?[0-9]+'),
              r'\)'[0:2*(i==mem_arg-1)])
             for i in range(n_args))),
         '\tcode[code_i++] = %d\n' % idx,
-        ('\tprocess_jump(%d)\n' % (n_args - 1) if name[0] == 'j' else '\tprocess_args()\n' if n_args else ''),
+        ('\tprocess_jump(%d)\n' % (n_args - 1) if name[0]=='j' or name=='call' else '\tprocess_args()\n' if n_args else ''),
         '\tnext\n',
         '}\n'))
 

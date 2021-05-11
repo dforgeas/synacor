@@ -97,9 +97,9 @@ BEGIN {
 	process_args()
 	next
 }
-/^[ \t]*call[ \t]+\$?[0-9]+/ {
+/^[ \t]*call[ \t]+[A-Za-z0-9_]+/ {
 	code[code_i++] = 17
-	process_args()
+	process_jump(0)
 	next
 }
 /^[ \t]*ret/ {
