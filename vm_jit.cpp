@@ -249,7 +249,6 @@ namespace arm
 			throw "invalid value in movi";
 		return 0xe3a0'0000 | rd << 12 | val;
 	}
-	// TODO: detect CPU and use newer movw instruction when available
 	constexpr instr orri_hi(int rd, int val)
 	{
 		if (val < 0 or val > 0xff)
@@ -258,10 +257,9 @@ namespace arm
 	}
 	constexpr instr movr(int rd, int rs) { return 0xe1a0'0000 | rd << 12 | rs; }
 	constexpr instr nop() { return movr(0, 0); }
-	instr movw(int rd, int val)
+	// detect CPU and use newer movw instruction when available
+	constexpr instr movw(int rd, int val)
 	{
-		if (not canArmv7)
-			throw "CPU doesn't support movw";
 		if (val < 0 or val > 0xffff)
 			throw "invalid value in movw";
 		return 0xe300'0000 | rd << 12 | (val & 0xf000) << 4 | (val & 0xfff);
@@ -289,6 +287,14 @@ namespace arm
 	constexpr instr smulbb(int rd, int rs, int rm)
 	{
 		return 0xe160'0080 | rd << 16 | rs << 8 | rm;
+	}
+	constexpr instr udiv(int rd, int rn, int rm)
+	{
+		return 0xe730'f010 | rd << 16 | rm << 8 | rn;
+	}
+	constexpr instr mls(int rd, int rn, int rm, int ra)
+	{
+		return 0xe060'0090 | rd << 16 | ra << 12 | rm << 8 | rn;
 	}
 	constexpr instr push(std::initializer_list<int> regs)
 	{
@@ -362,6 +368,17 @@ struct code_generator
 {
 	arm::instr * &code_p;
 
+	void movWord(const int dst, const word val)
+	{
+		if (arm::canArmv7)
+			*code_p++ = arm::movw(dst, val);
+		else
+		{
+			*code_p++ = arm::movi(dst, val & 0xff);
+			const int high = val >> 8;
+			if (high) *code_p++ = arm::orri_hi(dst, high);
+		}
+	}
 	void readReg(const int dst, const word src)
 	{
 		if (src > max)
@@ -370,9 +387,7 @@ struct code_generator
 		}
 		else
 		{
-			*code_p++ = arm::movi(dst, src & 0xff);
-			const int high = src >> 8;
-			if (high) *code_p++ = arm::orri_hi(dst, high);
+			movWord(dst, src);
 		}
 	}
 	void writeReg(const word dst, const int src)
@@ -442,9 +457,7 @@ struct code_generator
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, getchar));
 				*code_p++ = l1;
 				// pass the program counter as the argument (in order to savestate on EOF)
-				*code_p++ = arm::movi(0, i & 0xff);
-				const int high = i >> 8;
-				if (high) *code_p++ = arm::orri_hi(0, high);
+				movWord(0, i);
 				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
 				haltIf_err_halt();
@@ -514,10 +527,17 @@ struct code_generator
 					}, true); break;
 				case i_mod: ternary(i, [](int a, int b, int c) {
 						assert(a == 0); assert(b == 0); assert(c == 1);
-						// TODO: detect the CPU and use the udiv instruction when possible
-						return li{arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
-							arm::blx(arm::ip)};
-					}, false); break;
+						if (arm::canArmv7)
+							return li{
+								arm::udiv(3, b, c),
+								arm::mls(a, c, 3, b)
+							};
+						else
+							return li{
+								arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
+								arm::blx(arm::ip)
+							};
+					}, arm::canArmv7); break; // TODO: confirm if the mask is needed with udiv+mls
 				}
 				break;
 			}
@@ -573,9 +593,7 @@ struct code_generator
 			case i_call: // 1 argument
 			{
 				const word pc = i, pc_next = i + 2;
-				*code_p++ = arm::movi(0, pc_next & 0xff);
-				const int high = pc_next >> 8;
-				if (high) *code_p++ = arm::orri_hi(0, high);
+				movWord(0, pc_next);
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_push));
 				*code_p++ = l1;
 				constexpr arm::instr b1 = arm::blx(arm::ip);
@@ -654,11 +672,9 @@ void write_mem_impl(word addr, word value) noexcept
 		code_generator{code_p}.at(addr);
 		__builtin___clear_cache(code_p_begin, code_p);
 	}
-	// else: check if we are in the args of a instruction and recompile it?
-	// or perhaps just abort if this happens, perhaps it never happens?
 	else
-	{
-		const std::initializer_list<signed char> n_args{
+	{ // check if we are in the args of a instruction and recompile it
+		constexpr static std::initializer_list<signed char> n_args{
 			0, 2, 1, 1, 3, 3, 1, 2, 2, 3, 3, 3, 3, 3, 2, 2, 2, 1, 0, 1, 1, 0,
 		};
 		for (int dist = 1; dist <= 3; ++dist)
@@ -716,17 +732,16 @@ try
 	*code_p++ = push_args;
 	*code_p++ = pop_args;
 	#endif
-	*code_p++ = arm::movi(rmax, 0xff);
-	*code_p++ = arm::orri_hi(rmax, 0x7f);
+	code_generator code_gen{code_p};
+	code_gen.movWord(rmax, 0x7fff);
 	// jump to the right instruction according to pc (loaded from the saved state)
-	code_generator{code_p}.condJump(arm::AL, code_p - code_p_begin, 0, pc < 2 ? 2 : pc);
+	code_gen.condJump(arm::AL, code_p - code_p_begin, 0, pc < 2 ? 2 : pc);
 	// write a few arm::nop() to fill until the next instruction
 	while (code_p < code_p_begin + 2 * INSTR_PER_WORD) *code_p++ = arm::nop();
 
 	for (word i = 2; i <= max; ++i)
 	{
 		code_p = static_cast<arm::instr *>(code) + INSTR_PER_WORD * i;
-		code_generator code_gen{code_p};
 		code_gen.at(i);
 	}
 	__builtin___clear_cache(code, (char*)code + CODE_SIZE_IN_BYTES);
