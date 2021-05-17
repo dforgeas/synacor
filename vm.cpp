@@ -232,13 +232,23 @@ int run(word pc)
 			{
 				const word a = NEXTWORD;
 				const word b = readReg(NEXTWORD);
-				writeReg(a, readWord(&memory[b & max]));
+				writeReg(a, readWord(&memory[b]));
+				if (trace.is_open())
+				{
+					traceComment x;
+					trace << "<-(" << b << ')';
+				}
 			} break;
 		case i_wmem:
 			{
 				const word a = readReg(NEXTWORD);
 				const word b = readReg(NEXTWORD);
-				writeWord(&memory[a & max], b);
+				writeWord(&memory[a], b);
+				if (trace.is_open())
+				{
+					traceComment x;
+					trace << '(' << a << ") := " << b;
+				}
 			} break;
 		case i_call:
 			{
@@ -251,6 +261,11 @@ int run(word pc)
 			{
 				pc = stack.top();
 				stack.pop();
+				if (trace.is_open())
+				{
+					traceComment x;
+					trace << "-> " << pc;
+				}
 			}
 			else
 			{

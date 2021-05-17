@@ -608,10 +608,10 @@ struct code_generator
 				*code_p++ = l1;
 				constexpr arm::instr b1 = arm::blx(arm::ip); // this may call std::exit, i.e. halt if stack is empty
 				*code_p++ = b1;
-				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
 				constexpr arm::instr l2 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
 				*code_p++ = l2;
 				*code_p++ = b1; // this may call std::exit, it returns its argument (i.e. r0 is unchanged)
+				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
 				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, 0, rmachine_code, 0) | arm::lsl(5);
 				*code_p++ = a1;
 				constexpr arm::instr b3 = arm::bx(arm::AL, 0);
@@ -622,7 +622,7 @@ struct code_generator
 			{
 				const word a = memory[++i];
 				const word b = memory[++i];
-				readReg(0, b);
+				readReg(0, b); // TODO: if b is an immediate value, we could precompute lsl 1
 				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
 				*code_p++ = sh;
 				constexpr arm::instr ld = arm::ldrh(1, rmemory, 0) ^ arm::ld_I;
@@ -635,7 +635,7 @@ struct code_generator
 				const word a = memory[++i];
 				const word b = memory[++i];
 				readReg(1, b);
-				readReg(0, a);
+				readReg(0, a); // TODO: if a is an immediate value, we could precompute lsl 1
 				constexpr arm::instr sh = arm::movr(2, 0) | arm::lsl(1);
 				*code_p++ = sh;
 				constexpr arm::instr st = arm::strh(1, rmemory, 2) ^ arm::ld_I;
@@ -648,17 +648,24 @@ struct code_generator
 			}
 		}
 		instruction_start[i_begin] = true;
-		for (auto j = i_begin + 1; j <= i; ++j) instruction_start[j] = false;
+		// only set to false when we know we have overwritten their code:
+		// minus 1 because code_p always points to the next written location, code_p - 1 is the last written
+		const auto i_at_code_p_m1 = i_begin + (code_p - 1 - code_p_begin) / INSTR_PER_WORD;
+		for (auto j = i_begin + 1; j <= i_at_code_p_m1; ++j)
+		{
+			instruction_start[j] = false;
+		}
 		const auto code_p_end = code_p_begin + (i + 1 - i_begin) * INSTR_PER_WORD;
 		assert(code_p <= code_p_end);
 		assert((code_p_end - code_p_begin) % INSTR_PER_WORD == 0);
-		// write a few arm::nop() to fill until the next instruction
-		// if there's more than a few nops, write an AL branch to the next block
-		if (code_p_end - code_p >= 2)
+		// if there's a sizeable gap, write an AL branch to the next block
+		if (code_p_end - code_p > 2)
 		{
 			condJump(arm::AL, code_p - code_p_begin, i_begin, i + 1);
 		}
-		while (code_p < code_p_end) *code_p++ = arm::nop();
+		// don't write a few arm::nop() to fill until the next instruction
+		// while (code_p < code_p_end) *code_p++ = arm::nop();
+		// leaving a potential previous instruction in place
 	}
 };
 
@@ -673,10 +680,12 @@ void write_mem_impl(word addr, word value) noexcept
 		__builtin___clear_cache(code_p_begin, code_p);
 	}
 	else
-	{ // check if we are in the args of a instruction and recompile it
+	{ // check if we are in the args of an instruction and recompile it
 		constexpr static std::initializer_list<signed char> n_args{
 			0, 2, 1, 1, 3, 3, 1, 2, 2, 3, 3, 3, 3, 3, 2, 2, 2, 1, 0, 1, 1, 0,
 		};
+		// TODO: should we search starting at dist=3 instead?
+		// I feel the answer isn't obvious, it depends on what the actual program counter will be
 		for (int dist = 1; dist <= 3; ++dist)
 		{
 			const auto w = memory[addr - dist];
@@ -687,6 +696,7 @@ void write_mem_impl(word addr, word value) noexcept
 				const auto code_p_begin = code_p;
 				code_generator{code_p}.at(addr);
 				__builtin___clear_cache(code_p_begin, code_p);
+				break;
 			}
 		}
 	}
