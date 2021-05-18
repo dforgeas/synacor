@@ -622,9 +622,16 @@ struct code_generator
 			{
 				const word a = memory[++i];
 				const word b = memory[++i];
-				readReg(0, b); // TODO: if b is an immediate value, we could precompute lsl 1
-				constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
-				*code_p++ = sh;
+				if (b > max)
+				{
+					readReg(0, b);
+					constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
+					*code_p++ = sh;
+				}
+				else // if b is an immediate value, we can precompute lsl 1
+				{
+					movWord(0, b << 1);
+				}
 				constexpr arm::instr ld = arm::ldrh(1, rmemory, 0) ^ arm::ld_I;
 				*code_p++ = ld;
 				writeReg(a, 1);
@@ -635,7 +642,7 @@ struct code_generator
 				const word a = memory[++i];
 				const word b = memory[++i];
 				readReg(1, b);
-				readReg(0, a); // TODO: if a is an immediate value, we could precompute lsl 1
+				readReg(0, a);
 				constexpr arm::instr sh = arm::movr(2, 0) | arm::lsl(1);
 				*code_p++ = sh;
 				constexpr arm::instr st = arm::strh(1, rmemory, 2) ^ arm::ld_I;
