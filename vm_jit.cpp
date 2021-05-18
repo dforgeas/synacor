@@ -537,7 +537,7 @@ struct code_generator
 								arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
 								arm::blx(arm::ip)
 							};
-					}, arm::canArmv7); break; // TODO: confirm if the mask is needed with udiv+mls
+					}, false); break;
 				}
 				break;
 			}
