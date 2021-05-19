@@ -413,6 +413,7 @@ struct code_generator
 		}
 		else
 		{
+			// TODO: call check_jump_target
 			const int off_i = (w - pc) * INSTR_PER_WORD - extra;
 			*code_p++ = arm::b(cond, off_i);
 		}
@@ -592,10 +593,10 @@ struct code_generator
 			}
 			case i_call: // 1 argument
 			{
-				const word pc = i, pc_next = i + 2;
-				movWord(0, pc_next);
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_push));
 				*code_p++ = l1;
+				const word pc = i, pc_next = i + 2;
+				movWord(0, pc_next);
 				constexpr arm::instr b1 = arm::blx(arm::ip);
 				*code_p++ = b1;
 				const int extra = code_p - code_p_begin;
@@ -625,6 +626,7 @@ struct code_generator
 				if (b > max)
 				{
 					readReg(0, b);
+					static_assert(sizeof *memory == 2); // confirm lsl(1) works
 					constexpr arm::instr sh = arm::movr(0, 0) | arm::lsl(1);
 					*code_p++ = sh;
 				}
@@ -664,7 +666,6 @@ struct code_generator
 		}
 		const auto code_p_end = code_p_begin + (i + 1 - i_begin) * INSTR_PER_WORD;
 		assert(code_p <= code_p_end);
-		assert((code_p_end - code_p_begin) % INSTR_PER_WORD == 0);
 		// if there's a sizeable gap, write an AL branch to the next block
 		if (code_p_end - code_p > 2)
 		{
@@ -673,6 +674,7 @@ struct code_generator
 		// don't write a few arm::nop() to fill until the next instruction
 		// while (code_p < code_p_end) *code_p++ = arm::nop();
 		// leaving a potential previous instruction in place
+		// null instructions, 0x0000'0000 will work as nops too: andeq r0, r0, r0
 	}
 };
 
@@ -753,8 +755,6 @@ try
 	code_gen.movWord(rmax, 0x7fff);
 	// jump to the right instruction according to pc (loaded from the saved state)
 	code_gen.condJump(arm::AL, code_p - code_p_begin, 0, pc < 2 ? 2 : pc);
-	// write a few arm::nop() to fill until the next instruction
-	while (code_p < code_p_begin + 2 * INSTR_PER_WORD) *code_p++ = arm::nop();
 
 	for (word i = 2; i <= max; ++i)
 	{
