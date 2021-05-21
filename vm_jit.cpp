@@ -8,6 +8,7 @@
 #include<forward_list>
 #include<vector>
 #include<cassert>
+#include<algorithm>
 #include<sys/mman.h>
 #include<sys/auxv.h>
 #include<asm/hwcap.h>
@@ -181,10 +182,6 @@ word check_jump_target_impl(word w) noexcept
 	return w; // leave the address in r0 for the caller
 }
 
-struct Callbacks;
-typedef int (*machine_code_ptr)(word *memory, word *regs, Callbacks *);
-static machine_code_ptr machine_code;
-
 void write_mem_impl(word addr, word value) noexcept;
 
 static struct Callbacks
@@ -209,6 +206,8 @@ static struct Callbacks
 };
 
 } // extern "C"
+
+static void* machine_code;
 
 static class WillUnmap
 {
@@ -397,23 +396,30 @@ struct code_generator
 			*code_p++ = arm::strh(src, rregs, (dst - max - 1) * sizeof dst);
 		}
 	}
-	void condJump(arm::condition cond, const int extra, const word pc, const word w)
+	void condJump(arm::condition cond, int extra, const word pc, const word w,
+		const std::forward_list<arm::instr> cmp_instrs = {})
 	{
+		const auto code_p_begin = code_p;
+		// use register 0 so that it's the argument and result of check_jump_target
+		readReg(0, w);
+		constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
+		*code_p++ = l1;
+		constexpr arm::instr b1 = arm::blx(arm::ip);
+		*code_p++ = b1;
+
+		// now that we have tested the branch target, we can issue the comparison instructions, if any
+		for (auto i: cmp_instrs) *code_p++ = i;
+
+		extra += code_p - code_p_begin;
+
 		if (w > max)
 		{
-			// use register 0 so that it's the argument and result of check_jump_target
-			readReg(0, w);
 			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
-			constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
-			*code_p++ = l1;
-			constexpr arm::instr b1 = arm::blx(arm::ip);
-			*code_p++ = b1;
 			*code_p++ = arm::op(cond, arm::ADD, 0, rmachine_code, 0) | arm::lsl(5);
 			*code_p++ = arm::bx(cond, 0);
 		}
-		else
+		else // for a branch to a known location, we don't need r0 anymore since we use the branch instruction
 		{
-			// TODO: call check_jump_target
 			const int off_i = (w - pc) * INSTR_PER_WORD - extra;
 			*code_p++ = arm::b(cond, off_i);
 		}
@@ -489,12 +495,13 @@ struct code_generator
 				const auto pc = i;
 				const word a = memory[++i];
 				const word b = memory[++i];
-				readReg(0, a);
-				// reuse the register encoding but actually make it read it as an immediate zero value:
-				constexpr arm::instr c1 = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
-				*code_p++ = c1;
 				const int extra = code_p - code_p_begin;
-				condJump(w == i_jf ? arm::EQ : arm::NE, extra, pc, b);
+				arm::instr cmp_instrs[3];
+				auto *cp = cmp_instrs; // code_p but advancing in the small local array
+				code_generator{cp}.readReg(0, a); // 1 or 2 instructions
+				// reuse the register encoding but actually make it read it as an immediate zero value:
+				*cp++ = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
+				condJump(w == i_jf ? arm::EQ : arm::NE, extra, pc, b, {cmp_instrs, cp});
 				break;
 			}
 			case i_set: // 2 arguments
@@ -656,6 +663,20 @@ struct code_generator
 				break;
 			}
 		}
+		const auto code_p_end = code_p_begin + (i + 1 - i_begin) * INSTR_PER_WORD;
+		// there will be a gap, write an AL branch to the next block
+		// only if the instruction isn't a guaranteed jump elsewhere
+		constexpr static std::initializer_list<word> always_jumps{i_halt, i_jmp, i_call, i_ret};
+		if (std::find(always_jumps.begin(), always_jumps.end(), w) == always_jumps.end())
+		{
+			condJump(arm::AL, code_p - code_p_begin, i_begin, i + 1);
+		}
+		assert(code_p <= code_p_end);
+		// don't write a few arm::nop() to fill until the next instruction
+		// while (code_p < code_p_end) *code_p++ = arm::nop();
+		// leaving a potential previous instruction in place
+		// null instructions, 0x0000'0000 will work as nops too: andeq r0, r0, r0
+
 		instruction_start[i_begin] = true;
 		// only set to false when we know we have overwritten their code:
 		// minus 1 because code_p always points to the next written location, code_p - 1 is the last written
@@ -664,17 +685,6 @@ struct code_generator
 		{
 			instruction_start[j] = false;
 		}
-		const auto code_p_end = code_p_begin + (i + 1 - i_begin) * INSTR_PER_WORD;
-		assert(code_p <= code_p_end);
-		// if there's a sizeable gap, write an AL branch to the next block
-		if (code_p_end - code_p > 2)
-		{
-			condJump(arm::AL, code_p - code_p_begin, i_begin, i + 1);
-		}
-		// don't write a few arm::nop() to fill until the next instruction
-		// while (code_p < code_p_end) *code_p++ = arm::nop();
-		// leaving a potential previous instruction in place
-		// null instructions, 0x0000'0000 will work as nops too: andeq r0, r0, r0
 	}
 };
 
@@ -683,7 +693,7 @@ void write_mem_impl(word addr, word value) noexcept
 	// memory[addr] = value; already done in machine code
 	if (value <= i_noop)
 	{ // look up and compile the equivalent machine code
-		auto code_p = reinterpret_cast<arm::instr *>(machine_code) + INSTR_PER_WORD * addr;
+		auto code_p = static_cast<arm::instr *>(machine_code) + INSTR_PER_WORD * addr;
 		const auto code_p_begin = code_p;
 		code_generator{code_p}.at(addr);
 		__builtin___clear_cache(code_p_begin, code_p);
@@ -711,6 +721,12 @@ void write_mem_impl(word addr, word value) noexcept
 	}
 }
 
+static int start_machine_code()
+{
+	typedef int (*machine_code_ptr)(word *memory, word *regs, Callbacks *);
+	return reinterpret_cast<machine_code_ptr>(machine_code)(memory, regs, &callbacks);
+}
+
 static int run(word pc) noexcept
 try
 {
@@ -724,7 +740,7 @@ try
 		return -1;
 	}
 	willUnmap.set(code, CODE_SIZE_IN_BYTES);
-	machine_code = reinterpret_cast<machine_code_ptr>(code);
+	machine_code = code;
 
 	arm::instr *code_p = static_cast<arm::instr *>(code);
 	const auto code_p_begin = code_p;
@@ -768,7 +784,7 @@ try
 		machine_code_out.write((const char*)code, CODE_SIZE_IN_BYTES);
 	}
 #endif
-	return machine_code(memory, regs, &callbacks);
+	return start_machine_code();
 }
 catch (const char *err)
 {
