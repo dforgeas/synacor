@@ -5,7 +5,6 @@
 #include<cstring>
 #include<cstddef>
 #include<stack>
-#include<forward_list>
 #include<vector>
 #include<cassert>
 #include<algorithm>
@@ -397,7 +396,7 @@ struct code_generator
 		}
 	}
 	void condJump(arm::condition cond, int extra, const word pc, const word w,
-		const std::forward_list<arm::instr> cmp_instrs = {})
+		const arm::instr *const cmp_instrs_begin = nullptr, const arm::instr *const cmp_instrs_end = nullptr)
 	{
 		const auto code_p_begin = code_p;
 		// use register 0 so that it's the argument and result of check_jump_target
@@ -408,7 +407,7 @@ struct code_generator
 		*code_p++ = b1;
 
 		// now that we have tested the branch target, we can issue the comparison instructions, if any
-		for (auto i: cmp_instrs) *code_p++ = i;
+		code_p = std::copy(cmp_instrs_begin, cmp_instrs_end, code_p);
 
 		extra += code_p - code_p_begin;
 
@@ -424,14 +423,15 @@ struct code_generator
 			*code_p++ = arm::b(cond, off_i);
 		}
 	}
-	void ternary(word &i, std::forward_list<arm::instr> oper(int, int, int), bool mask)
+	void ternary(word &i, const bool mask, const arm::instr oper1, const arm::instr oper2 = 0)
 	{
 		const word a = memory[++i];
 		const word b = memory[++i];
 		const word c = memory[++i];
 		readReg(0, b);
 		readReg(1, c);
-		for (auto j: oper(0, 0, 1)) *code_p++ = j;
+		*code_p++ = oper1;
+		if (oper2) *code_p++ = oper2;
 		if (mask) *code_p++ = arm::op(arm::AL, arm::AND, 0, 0, rmax);
 		writeReg(a, 0);
 	}
@@ -501,7 +501,7 @@ struct code_generator
 				code_generator{cp}.readReg(0, a); // 1 or 2 instructions
 				// reuse the register encoding but actually make it read it as an immediate zero value:
 				*cp++ = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
-				condJump(w == i_jf ? arm::EQ : arm::NE, extra, pc, b, {cmp_instrs, cp});
+				condJump(w == i_jf ? arm::EQ : arm::NE, extra, pc, b, cmp_instrs, cp);
 				break;
 			}
 			case i_set: // 2 arguments
@@ -517,38 +517,24 @@ struct code_generator
 			case i_and: // 3 arguments
 			case i_or: // 3 arguments
 			case i_mod: // 3 arguments
-			{
-				typedef std::forward_list<arm::instr> li;
 				switch (w)
 				{
-				case i_add: ternary(i, [](int a, int b, int c) {
-						return li{arm::op(arm::AL, arm::ADD, a, b, c)};
-					}, true); break;
-				case i_and: ternary(i, [](int a, int b, int c) {
-						return li{arm::op(arm::AL, arm::AND, a, b, c)};
-					}, false); break;
-				case i_or: ternary(i, [](int a, int b, int c) {
-						return li{arm::op(arm::AL, arm::ORR, a, b, c)};
-					}, false); break;
-				case i_mult: ternary(i, [](int a, int b, int c) {
-						return li{arm::smulbb(a, b, c)};
-					}, true); break;
-				case i_mod: ternary(i, [](int a, int b, int c) {
-						assert(a == 0); assert(b == 0); assert(c == 1);
-						if (arm::canArmv7)
-							return li{
-								arm::udiv(3, b, c),
-								arm::mls(a, c, 3, b)
-							};
-						else
-							return li{
-								arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
-								arm::blx(arm::ip)
-							};
-					}, false); break;
+				case i_add: ternary(i, true, arm::op(arm::AL, arm::ADD, 0, 0, 1)); break;
+				case i_and: ternary(i, false, arm::op(arm::AL, arm::AND, 0, 0, 1)); break;
+				case i_or: ternary(i, false, arm::op(arm::AL, arm::ORR, 0, 0, 1)); break;
+				case i_mult: ternary(i, true, arm::smulbb(0, 0, 1)); break;
+				case i_mod:
+					if (arm::canArmv7)
+						ternary(i, false,
+							arm::udiv(3, 0, 1), // r3 = r0 / r1
+							arm::mls(0, 1, 3, 0)); // r0 = r0 - r1 * r3
+					else
+						ternary(i, false,
+							arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, modulo)),
+							arm::blx(arm::ip));
+					break;
 				}
 				break;
-			}
 			case i_eq: // 3 arguments
 			case i_gt: // 3 arguments
 			{
