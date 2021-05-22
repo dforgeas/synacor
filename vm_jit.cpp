@@ -171,17 +171,8 @@ word modulo_impl(word a, word b) noexcept
 	return a % b;
 }
 
-word check_jump_target_impl(word w) noexcept
-{
-	if (not instruction_start.at(w))
-	{
-		std::cerr << "Error: jump to non-instruction at " << w << '\n';
-		std::exit(4);
-	}
-	return w; // leave the address in r0 for the caller
-}
-
 void write_mem_impl(word addr, word value) noexcept;
+word check_jump_target_impl(word w) noexcept;
 
 static struct Callbacks
 {
@@ -206,8 +197,6 @@ static struct Callbacks
 
 } // extern "C"
 
-static void* machine_code;
-
 static class WillUnmap
 {
 	void *ptr = 0;
@@ -223,10 +212,6 @@ public:
 		length = len;
 	}
 } willUnmap;
-
-constexpr int INSTR_PER_WORD = 8; // a word is either an instruction or an argument, so instructions with arguments get more space
-constexpr auto CODE_SIZE = (max+1) * INSTR_PER_WORD;
-constexpr auto CODE_SIZE_IN_BYTES = CODE_SIZE * sizeof(std::uint32_t);
 
 namespace arm
 {
@@ -353,6 +338,11 @@ namespace arm
 	}
 }
 
+static void* machine_code;
+constexpr int INSTR_PER_WORD = 16; // a word is either an instruction or an argument, so instructions with arguments get more space
+constexpr auto CODE_SIZE = (max+1) * INSTR_PER_WORD;
+constexpr auto CODE_SIZE_IN_BYTES = CODE_SIZE * sizeof(std::uint32_t);
+
 constexpr int rmemory = 0 + 4, rregs = 1 + 4, rcallbacks = 2 + 4, rmachine_code = 3 + 4, rmax = 4 + 4;
 // 4, 5, 6 are the machine_code arguments: memory, regs, &callbacks
 // 7 is the machine_code pointer
@@ -413,8 +403,8 @@ struct code_generator
 
 		if (w > max)
 		{
-			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
-			*code_p++ = arm::op(cond, arm::ADD, 0, rmachine_code, 0) | arm::lsl(5);
+			static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 6); // confirm lsl 6 works
+			*code_p++ = arm::op(cond, arm::ADD, 0, rmachine_code, 0) | arm::lsl(6);
 			*code_p++ = arm::bx(cond, 0);
 		}
 		else // for a branch to a known location, we don't need r0 anymore since we use the branch instruction
@@ -498,9 +488,9 @@ struct code_generator
 				const int extra = code_p - code_p_begin;
 				arm::instr cmp_instrs[3];
 				auto *cp = cmp_instrs; // code_p but advancing in the small local array
-				code_generator{cp}.readReg(0, a); // 1 or 2 instructions
+				code_generator{cp}.readReg(1, a); // 1 or 2 instructions
 				// reuse the register encoding but actually make it read it as an immediate zero value:
-				*cp++ = arm::op(arm::AL, arm::CMP, 0, 0, 0) | arm::op_I;
+				*cp++ = arm::op(arm::AL, arm::CMP, 0, 1, 0) | arm::op_I;
 				condJump(w == i_jf ? arm::EQ : arm::NE, extra, pc, b, cmp_instrs, cp);
 				break;
 			}
@@ -605,8 +595,8 @@ struct code_generator
 				constexpr arm::instr l2 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
 				*code_p++ = l2;
 				*code_p++ = b1; // this may call std::exit, it returns its argument (i.e. r0 is unchanged)
-				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 5); // confirm lsl 5 works
-				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, 0, rmachine_code, 0) | arm::lsl(5);
+				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 6); // confirm lsl 6 works
+				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, 0, rmachine_code, 0) | arm::lsl(6);
 				*code_p++ = a1;
 				constexpr arm::instr b3 = arm::bx(arm::AL, 0);
 				*code_p++ = b3;
@@ -705,6 +695,20 @@ void write_mem_impl(word addr, word value) noexcept
 			}
 		}
 	}
+}
+
+word check_jump_target_impl(word w) noexcept
+{
+	if (not instruction_start.at(w))
+	{
+		std::cerr << "Error: jump to non-instruction at " << w << '\n';
+		std::ofstream machine_code_out("machine_code.bin", std::ios::binary);
+		machine_code_out.write((const char*)machine_code, CODE_SIZE_IN_BYTES);
+		std::ofstream memory_out("memory.bin", std::ios::binary);
+		memory_out.write((const char*)memory, sizeof memory);
+		std::exit(4);
+	}
+	return w; // leave the address in r0 for the caller
 }
 
 static int start_machine_code()
