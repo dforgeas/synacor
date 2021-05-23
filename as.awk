@@ -42,19 +42,19 @@ BEGIN {
 	process_args()
 	next
 }
-/^[ \t]*jmp[ \t]+[A-Za-z0-9_]+/ {
+/^[ \t]*jmp[ \t]+\$?[0-9]+/ {
 	code[code_i++] = 6
-	process_jump(0)
+	process_args()
 	next
 }
-/^[ \t]*jt[ \t]+\$?[0-9]+[ \t]+[A-Za-z0-9_]+/ {
+/^[ \t]*jt[ \t]+\$?[0-9]+[ \t]+\$?[0-9]+/ {
 	code[code_i++] = 7
-	process_jump(1)
+	process_args()
 	next
 }
-/^[ \t]*jf[ \t]+\$?[0-9]+[ \t]+[A-Za-z0-9_]+/ {
+/^[ \t]*jf[ \t]+\$?[0-9]+[ \t]+\$?[0-9]+/ {
 	code[code_i++] = 8
-	process_jump(1)
+	process_args()
 	next
 }
 /^[ \t]*add[ \t]+\$?[0-9]+[ \t]+\$?[0-9]+[ \t]+\$?[0-9]+/ {
@@ -97,9 +97,9 @@ BEGIN {
 	process_args()
 	next
 }
-/^[ \t]*call[ \t]+[A-Za-z0-9_]+/ {
+/^[ \t]*call[ \t]+\$?[0-9]+/ {
 	code[code_i++] = 17
-	process_jump(0)
+	process_args()
 	next
 }
 /^[ \t]*ret/ {
@@ -118,6 +118,31 @@ BEGIN {
 }
 /^[ \t]*noop/ {
 	code[code_i++] = 21
+	next
+}
+/^[ \t]*set[ \t]+\$?[0-9]+[ \t]+[A-Za-z_][A-Za-z0-9_]+/ {
+	code[code_i++] = 1
+	process_jump(1)
+	next
+}
+/^[ \t]*jmp[ \t]+[A-Za-z_][A-Za-z0-9_]+/ {
+	code[code_i++] = 6
+	process_jump(0)
+	next
+}
+/^[ \t]*jt[ \t]+\$?[0-9]+[ \t]+[A-Za-z_][A-Za-z0-9_]+/ {
+	code[code_i++] = 7
+	process_jump(1)
+	next
+}
+/^[ \t]*jf[ \t]+\$?[0-9]+[ \t]+[A-Za-z_][A-Za-z0-9_]+/ {
+	code[code_i++] = 8
+	process_jump(1)
+	next
+}
+/^[ \t]*call[ \t]+[A-Za-z_][A-Za-z0-9_]+/ {
+	code[code_i++] = 17
+	process_jump(0)
 	next
 }
 # ================
