@@ -98,7 +98,7 @@ enum instruction
 };
 
 extern "C"
-{ // put the interface with assembly here, to disable C++ complications if ever
+{ // put the interface with machine code here, to disable C++ complications if ever
 
 enum Errors
 {
@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
 	{
 		if (not loadState(pc))
 		{
-			std::cerr << "Need either a argument with a program or a saved state.\n";
+			std::cerr << "Need either a binary as argument or a saved state.\n";
 			return 1;
 		}
 		// else carry on

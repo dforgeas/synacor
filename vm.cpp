@@ -310,7 +310,7 @@ int main(int argc, char *argv[])
 	{
 		if (not loadState(pc))
 		{
-			std::cerr << "Need either a argument with a program or a saved state.\n";
+			std::cerr << "Need either a binary as argument or a saved state.\n";
 			return 1;
 		}
 		// else carry on

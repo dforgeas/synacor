@@ -182,8 +182,8 @@ struct Program {
 }
 
 impl Program {
-    fn load_challenge(&mut self) -> std::io::Result<u16> {
-        let binary = fs::read("challenge.bin")?;
+    fn load_challenge(&mut self, filename: &str) -> std::io::Result<u16> {
+        let binary = fs::read(filename)?;
         for (i, (a, b)) in PairIter::new(binary.iter()).enumerate() {
             self.memory[i] = Cell::decode_from_bytes([*a, *b]);
         }
@@ -337,7 +337,7 @@ impl Program {
                 Cell::Out => {
                     let a = self.rreg(self.next(&mut pc));
                     stdout.write(slice::from_ref(&a.encode().try_into().unwrap())).unwrap();
-                }
+                },
                 Cell::In => {
                     let mut b = 0;
                     if 0 == stdin.read(slice::from_mut(&mut b)).unwrap() {
@@ -348,7 +348,7 @@ impl Program {
                         stdin.read(slice::from_mut(&mut b)).unwrap(); // unlikely this could be EOF here
                     }
                     self.wreg(self.next(&mut pc), Cell::decode(b.into()));
-                }
+                },
                 Cell::Noop => continue,
                 _ => panic!("Invalid instruction: {:?} at {:x}!", c, pc-1),
             }
@@ -357,16 +357,29 @@ impl Program {
 }
 
 fn main() -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
     let mut program = Program {
         memory: [Cell::Halt; MEM_SIZE],
         regs: [Cell::Halt; 8],
         stack: Vec::with_capacity(16),
     };
-    let loaded = program.load_state();
-    let pc = match loaded {
-        Ok(p) => p,
-        Err(_) => program.load_challenge()?
-    };
-    program.run(pc);
+    match args.len() {
+        // no arguments passed
+        1 => {
+            let loaded = program.load_state();
+            let pc = match loaded {
+                Ok(p) => p,
+                Err(_) => program.load_challenge("challenge.bin")?
+            };
+            program.run(pc);
+        },
+        // one argument passed
+        2 => {
+            let pc = program.load_challenge(&args[1])?;
+            program.run(pc);
+        },
+        // all the other cases
+        _ => panic!("Unexpected arguments, only pass a program name, or nothing to resume from the saved state."),
+    }
     Ok(())
 }
