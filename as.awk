@@ -155,6 +155,7 @@ BEGIN {
 
 /^[ \t]*$/ {
 	# skip empty lines
+	next
 }
 
 # anything else

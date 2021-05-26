@@ -1,4 +1,11 @@
 #!/usr/bin/awk -f
+BEGIN {
+	dir_map["N"] = "north"
+	dir_map["S"] = "south"
+	dir_map["E"] = "east"
+	dir_map["W"] = "west"
+}
+
 # parses vault_lock.txt
 {
 	i = 1
@@ -49,7 +56,12 @@ function go(i, j, weight, oper, dir, txt,    cell) {
 
 	if (weight == end_weight) ok = "ok"
 	else ok = ""
-	if (end_i == i && end_j == j && weight == end_weight) ok = ok " OK"
+	if (end_i == i && end_j == j && weight == end_weight) {
+		ok = ok " OK"
+		for (z = 1; z <= length(dir); ++z) {
+			print dir_map[substr(dir, z, 1)]
+		}
+	}
 	if (ok != "") {
 		print dir, "->", txt, "->", weight, ok
 	}

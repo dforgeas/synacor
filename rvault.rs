@@ -88,6 +88,16 @@ impl Vault {
             Cell::Oper(o) => oper = o, // store here because it applies to the next step with a Cell::Num
         }
         if weight == self.end_weight {
+            if self.end == pos {
+            for z in self.dir.chars() {
+                println!("{}", match z {
+                    'N' => "north",
+                    'S' => "south",
+                    'E' => "east",
+                    'W' => "west",
+                    _ => "?",
+                });
+            }}
             println!("{} -> {} -> {} ok{}", self.dir, self.txt, weight, if self.end == pos {" OK"} else {""} );
         }
         if self.end != pos {
