@@ -41,6 +41,9 @@ fn main() {
                         if seen.contains(value_e) { continue }
                         if value_a + value_b * (*value_c).pow(2) + (*value_d).pow(3) - value_e == 399 {
                             println!("{} {} {} {} {}", name_a, name_b, name_c, name_d, name_e);
+                            for name in [name_a, name_b, name_c, name_d, name_e].iter() {
+                                println!("use {} coin", name);
+                            }
                         }
                     }
                     seen.remove(value_d);

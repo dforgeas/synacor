@@ -19,6 +19,8 @@ BEGIN {
 	if (e != a && e != b && e != c && e != d) {
 		if (coins[a] + coins[b] * coins[c]^2 + coins[d]^3 - coins[e] == 399) {
 			print names[a], names[b], names[c], names[d], names[e]
+			split(sprintf("%s %s %s %s %s", names[a], names[b], names[c], names[d], names[e]), solution)
+			for (s = 1; s <= n_coins; ++s) print "use", solution[s], "coin"
 		}
 	}
 }
