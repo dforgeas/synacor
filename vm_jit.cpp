@@ -3,11 +3,13 @@
 #include<fstream>
 #include<cstdint>
 #include<cstring>
+#include<cstdlib>
 #include<cstddef>
 #include<stack>
 #include<vector>
 #include<cassert>
 #include<algorithm>
+#include<charconv>
 #include<sys/mman.h>
 #include<sys/auxv.h>
 #include<asm/hwcap.h>
@@ -391,12 +393,15 @@ struct code_generator
 		const auto code_p_begin = code_p;
 		// use register 0 so that it's the argument and result of check_jump_target
 		readReg(0, w);
-		constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
-		*code_p++ = l1;
-		constexpr arm::instr b1 = arm::blx(arm::ip);
-		*code_p++ = b1;
+		if (enableCheckJumpTarget)
+		{
+			constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
+			*code_p++ = l1;
+			constexpr arm::instr b1 = arm::blx(arm::ip);
+			*code_p++ = b1;
+		}
 
-		// now that we have tested the branch target, we can issue the comparison instructions, if any
+		// now that we may have tested the branch target, we can issue the comparison instructions, if any
 		code_p = std::copy(cmp_instrs_begin, cmp_instrs_end, code_p);
 
 		extra += code_p - code_p_begin;
@@ -592,9 +597,12 @@ struct code_generator
 				*code_p++ = l1;
 				constexpr arm::instr b1 = arm::blx(arm::ip); // this may call std::exit, i.e. halt if stack is empty
 				*code_p++ = b1;
-				constexpr arm::instr l2 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
-				*code_p++ = l2;
-				*code_p++ = b1; // this may call std::exit, it returns its argument (i.e. r0 is unchanged)
+				if (enableCheckJumpTarget)
+				{
+					constexpr arm::instr l2 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, check_jump_target));
+					*code_p++ = l2;
+					*code_p++ = b1; // this may call std::exit, it returns its argument (i.e. r0 is unchanged)
+				}
 				static_assert(INSTR_PER_WORD * sizeof(arm::instr) == 1 << 6); // confirm lsl 6 works
 				constexpr arm::instr a1 = arm::op(arm::AL, arm::ADD, 0, rmachine_code, 0) | arm::lsl(6);
 				*code_p++ = a1;
@@ -662,7 +670,18 @@ struct code_generator
 			instruction_start[j] = false;
 		}
 	}
+
+	static bool enableCheckJumpTarget;
+	static void configureCheckJumpTarget()
+	{
+		const char *levelStr = std::getenv("VM_JIT_CHECK_JUMP_TARGET");
+		int level = -1;
+		if (levelStr) std::from_chars(levelStr, levelStr + 1, level);
+		enableCheckJumpTarget = level;
+	}
 };
+
+bool code_generator::enableCheckJumpTarget = false;
 
 void write_mem_impl(word addr, word value) noexcept
 {
@@ -699,7 +718,7 @@ void write_mem_impl(word addr, word value) noexcept
 
 word check_jump_target_impl(word w) noexcept
 {
-	if (not instruction_start.at(w))
+	if (not instruction_start[w])
 	{
 		std::cerr << "Error: jump to non-instruction at " << w << '\n';
 		std::ofstream machine_code_out("machine_code.bin", std::ios::binary);
@@ -786,6 +805,7 @@ int main(int argc, char *argv[])
 {
 	std::ios::sync_with_stdio(false);
 	arm::detectCpu();
+	code_generator::configureCheckJumpTarget();
 
 	word pc = 0;
 	if (argc < 2)
