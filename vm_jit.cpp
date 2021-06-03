@@ -4,6 +4,7 @@
 #include<cstdint>
 #include<cstring>
 #include<cstdlib>
+#include<string>
 #include<cstddef>
 #include<stack>
 #include<vector>
@@ -118,6 +119,8 @@ void putchar_impl(word w) noexcept
 	// don't flush here since cout will be flushed when cin reads
 }
 
+void write_mem_impl(word addr, word value) noexcept;
+
 word getchar_impl(word pc) noexcept
 {
 // pc can just be computed by the JIT compiler statically at the location of the i_in instruction
@@ -125,6 +128,33 @@ word getchar_impl(word pc) noexcept
 	char c;
 	if (std::cin.get(c)) // input was ok
 	{
+		static std::ofstream log("input.log");
+		static bool seenNewLine = false;
+		log << c;
+		if (seenNewLine and c == '!')
+		{ // special command follows
+			std::string line;
+			if (std::getline(std::cin, line))
+			{
+				if (line == "prepare teleporter")
+				{
+	// set 6 into the first register instead, the expected result from ack
+					memory[5483 + 2] = 6;
+					write_mem_impl(5483, memory[5483]); // recompile the corresponding instruction
+	// replace the call to ack with noops
+					memory[5489] = i_noop;
+					write_mem_impl(5489, i_noop);
+					memory[5489 + 1] = i_noop;
+					write_mem_impl(5489 + 1, i_noop);
+	// set the eigth register to the correct teleporter value
+					regs[7] = 25734;
+					std::cout << "\nPrepared.\n";
+				}
+			}
+			log << line << '\n';
+			c = '\n'; // hide this line to the program
+		}
+		seenNewLine = c == '\n';
 		return static_cast<unsigned char>(c);
 	}
 	else // probably EOF
@@ -173,7 +203,6 @@ word modulo_impl(word a, word b) noexcept
 	return a % b;
 }
 
-void write_mem_impl(word addr, word value) noexcept;
 word check_jump_target_impl(word w) noexcept;
 
 static struct Callbacks
@@ -593,6 +622,7 @@ struct code_generator
 			}
 			case i_ret: // 0 arguments, code size is only INSTR_PER_WORD
 			{
+				// TODO: use Callbacks::stack_pop and halt if empty, if INSTR_PER_WORD allows enough space
 				constexpr arm::instr l1 = arm::ldr(arm::ip, rcallbacks, offsetof(Callbacks, stack_pop_or_halt));
 				*code_p++ = l1;
 				constexpr arm::instr b1 = arm::blx(arm::ip); // this may call std::exit, i.e. halt if stack is empty

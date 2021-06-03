@@ -1,4 +1,5 @@
 take tablet
+look tablet
 use tablet
 doorway
 north
@@ -8,7 +9,63 @@ continue
 down
 east
 take empty lantern
+look empty lantern
 west
 west
 passage
 ladder
+west
+south
+north
+take can
+look can
+use can
+inv
+look lantern
+use lantern
+west
+ladder
+darkness
+continue
+west
+west
+west
+west
+look north
+north
+take red coin
+north
+east
+take concave coin
+down
+take corroded coin
+up
+west
+west
+take blue coin
+up
+take shiny coin
+down
+east
+inv
+look blue coin
+look red coin
+look corroded coin
+look shiny coin
+look concave coin
+use blue coin
+use red coin
+use shiny coin
+use concave coin
+use corroded coin
+north
+take teleporter
+look teleporter
+use teleporter
+take business card
+look business card
+take strange book
+look strange book
+outside
+!prepare teleporter
+use teleporter
