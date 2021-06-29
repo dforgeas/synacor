@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{stdout, stdin, Read, Write, BufReader, BufWriter};
+use std::io::{stdout, stdin, Read, Write, BufRead, BufReader, BufWriter};
 use std::convert::TryInto;
 use std::slice;
 
@@ -179,6 +179,7 @@ struct Program {
     memory: [Cell; MEM_SIZE],
     regs: [Cell; 8],
     stack: Vec<Cell>,
+    seen_new_line: bool,
 }
 
 impl Program {
@@ -347,6 +348,22 @@ impl Program {
                     if b == b'\r' {
                         stdin.read(slice::from_mut(&mut b)).unwrap(); // unlikely this could be EOF here
                     }
+                    if self.seen_new_line && b == b'!' {
+                        let mut line = String::new();
+                        let _bytes_read = stdin.read_line(&mut line).unwrap();
+                        if line.trim() == "prepare teleporter" {
+	// set 6 into the first register instead, the expected result from ack
+                            self.memory[5483 + 2] = Cell::decode(6);
+	// replace the call to ack with noops
+                            self.memory[5489] = Cell::Noop;
+                            self.memory[5489 + 1] = Cell::Noop;
+	// set the eigth register to the correct teleporter value
+                            self.regs[7] = Cell::decode(25734);
+                            write!(stdout, "\nPrepared.\n").unwrap();
+                        }
+                        b = b'\n'; // hide this line to the program
+                    }
+                    self.seen_new_line = b == b'\n';
                     self.wreg(self.next(&mut pc), Cell::decode(b.into()));
                 },
                 Cell::Noop => continue,
@@ -362,6 +379,7 @@ fn main() -> std::io::Result<()> {
         memory: [Cell::Halt; MEM_SIZE],
         regs: [Cell::Halt; 8],
         stack: Vec::with_capacity(16),
+        seen_new_line: false,
     };
     match args.len() {
         // no arguments passed
