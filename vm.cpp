@@ -288,6 +288,27 @@ int run(word pc)
 				char c;
 				if (std::cin.get(c)) // input was ok
 				{
+					static bool seenNewLine = false;
+					if (seenNewLine and c == '!')
+					{ // special command follows
+						std::string line;
+						if (std::getline(std::cin, line))
+						{
+							if (line == "prepare teleporter")
+							{
+				// set 6 into the first register instead, the expected result from ack
+								writeWord(&memory[5483 + 2], 6);
+				// replace the call to ack with noops
+								writeWord(&memory[5489], i_noop);
+								writeWord(&memory[5489 + 1], i_noop);
+				// set the eigth register to the correct teleporter value
+								regs[7] = 25734;
+								std::cout << "\nPrepared.\n";
+							}
+						}
+						c = '\n'; // hide this line to the program
+					}
+					seenNewLine = c == '\n';
 					writeReg(NEXTWORD, static_cast<unsigned char>(c));
 				}
 				else // probably EOF

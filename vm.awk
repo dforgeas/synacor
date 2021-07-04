@@ -103,6 +103,15 @@ BEGIN {
 				if (i <= 0) { # EOF or input error
 					savestate(pc - 1)
 					exit
+				} else if (input == "!prepare teleporter") {
+			# set 6 into the first register instead, the expected result from ack
+					mem[5483 + 2] = 6
+			# replace the call to ack with noops
+					mem[5489] = mem[5489 + 1] = 21
+			# set the eigth register to the correct teleporter value
+					regs[7] = 25734
+					printf "\nPrepared.\n"
+					input = "" # hide this line to the program
 				}
 				input = input ORS
 			}
